@@ -181,10 +181,16 @@ jobs:
     if: always() && needs.mac.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      - name: Récupérer le projet (guides)
+        uses: actions/checkout@v4
+
       - name: Récupérer les fichiers fabriqués
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+
+      - name: Joindre le guide iPhone
+        run: cp "Distribution/Installer C-SAFE sur iPhone.pdf" .
 
       - name: Publier la version à partager
         uses: softprops/action-gh-release@v2
@@ -199,10 +205,14 @@ jobs:
             Réglages Système > Confidentialité et sécurité > « Ouvrir quand même ».
             Guide illustré : « Installer C-SAFE (à lire).pdf » dans le .dmg.
 
+            iPhone / iPad : C-SAFE.ipa, à installer avec SideStore (gratuit).
+            Guide : « Installer C-SAFE sur iPhone.pdf ».
+
             Empreinte SHA-256 du fichier C-SAFE.dmg (pour vérifier qu'il n'a pas été modifié) :
             ${{ needs.mac.outputs.sha }}
           files: |
             C-SAFE.dmg
             C-SAFE.ipa
+            Installer C-SAFE sur iPhone.pdf
           fail_on_unmatched_files: false
           make_latest: true

@@ -354,8 +354,10 @@ struct TransferPanel: View {
                 .frame(minWidth: 400)
                 VStack(spacing: 6) {
                     SourceColumn(onPickCard: onPickCard, askName: askName)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     flowArrow("arrow.down")
                     DestinationsColumn(onAdd: onAddDestination)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
