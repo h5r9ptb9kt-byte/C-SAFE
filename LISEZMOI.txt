@@ -1,0 +1,67 @@
+C-SAFE — déchargement sécurisé de cartes caméra · par C-FOCUS
+==============================================================
+
+Une seule application pour Mac, iPad et iPhone.
+
+CE QUE FAIT C-SAFE
+- Copie chaque carte EN MÊME TEMPS sur tous tes disques (une seule lecture).
+- Range tout seul :
+      <Disque>/<Projet>/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01/
+      <Disque>/<Projet>/J1_2026-10-18/SON/         (enregistreur, copié directement)
+      <Disque>/<Projet>/J1_2026-10-18/SON/HF1, HF3… (HF au choix, dans l'ordre que tu veux)
+      <Disque>/<Projet>/_Rapports/
+- Jour de tournage J1, J2, J3… ajouté au dossier de la date. C-SAFE reprend le J
+  déjà utilisé pour cette date, propose sinon le suivant, et bloque (cadenas) les J
+  déjà pris par un autre jour. « Sans numéro de jour » reste possible.
+- Vérifie chaque fichier sur chaque disque (MD5) et ajoute un fichier .mhl
+  (standard cinéma relu par Silverstack, ShotPut, Hedge, DaVinci Resolve).
+- Noms compatibles avec Premiere, Resolve, Final Cut, Avid, Windows, exFAT et NAS :
+  sans accent ni espace. Les fichiers de la carte ne sont jamais renommés.
+- Une source déjà copiée dans la journée disparaît de la liste.
+  Pour une 2e, 3e… carte de la même source : active « Carte supplémentaire ».
+- Prévient si une carte a déjà été copiée. En cas d'échec, le dossier est
+  marqué « _INCOMPLET » : NE FORMATE PAS LA CARTE dans ce cas.
+- Sources (CamA…CamH, SON, HF1…HF4) et types (FX2, FX3, FX5, Osmo 4P, 360,
+  Drone, GoPro) personnalisables avec « Autre… ».
+
+MAC : tout est automatique (détection de la carte, copie, vérification, éjection).
+iPAD / iPHONE : Apple ne permet pas de détecter seul une carte branchée. Branche le
+lecteur de carte et les disques (hub USB-C), touche « Choisir la carte à copier »
+et sélectionne-la dans Fichiers. Garde l'app ouverte pendant la copie.
+Les disques doivent être en exFAT ou APFS pour être lisibles sur iPad/iPhone.
+
+
+INSTALLATION — une seule fois (environ 15 minutes)
+-------------------------------------------------
+1. Sur ton Mac, installe Xcode depuis l'App Store (gratuit).
+2. Ouvre Xcode > Réglages (Settings) > Comptes (Accounts) > « + » > Apple ID,
+   et connecte ton identifiant Apple.
+3. Décompresse C-SAFE.zip et double-clique sur « C-SAFE.xcodeproj ».
+4. Dans la colonne de gauche, clique sur « C-SAFE » (l'icône bleue tout en haut),
+   puis sur la cible « C-SAFE » > onglet « Signing & Capabilities » :
+   - Team : choisis ton nom (Personal Team).
+   - Si Xcode dit que l'identifiant est déjà pris, remplace « fr.cfocus.csafe »
+     par par exemple « fr.cfocus.csafe.etienne ».
+
+SUR LE MAC
+5. En haut de la fenêtre Xcode, choisis « My Mac » comme destination.
+6. Menu Product > Archive. Quand c'est fini : Distribute App > Custom >
+   Copy App > enregistre C-SAFE.app et glisse-la dans ton dossier Applications.
+   (Pour un simple essai : bouton ▶ Run.)
+7. Au premier branchement de carte, macOS demande l'accès aux « volumes
+   amovibles » : réponds Autoriser.
+
+SUR L'iPHONE OU L'iPAD
+8. Branche l'appareil au Mac avec un câble et déverrouille-le.
+9. Sur l'appareil : Réglages > Confidentialité et sécurité > Mode développeur > Activer
+   (l'appareil redémarre).
+10. Dans Xcode, choisis ton iPhone / iPad comme destination et clique ▶ Run.
+11. La première fois : Réglages > Général > VPN et gestion de l'appareil >
+    ton identifiant Apple > Faire confiance.
+
+Bon à savoir : avec un identifiant Apple gratuit, l'app installée sur iPhone/iPad
+doit être réinstallée (étape 10) tous les 7 jours. Avec un compte Apple Developer
+(99 € par an), elle reste installée un an. Sur Mac, aucune limite.
+
+Les réglages (projet, disques, listes de sources et de types) sont mémorisés.
+Version sans Xcode pour Windows ou en dépannage : RushBackup (Python), déjà fourni.

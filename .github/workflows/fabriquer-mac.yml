@@ -1,0 +1,69 @@
+# Fabrique automatiquement l'application Mac C-SAFE sur les Mac de GitHub,
+# puis publie un fichier C-SAFE.dmg à partager (onglet « Releases » du dépôt).
+name: Fabriquer C-SAFE (Mac)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - name: Récupérer le projet
+        uses: actions/checkout@v4
+
+      - name: Version de Xcode
+        run: xcodebuild -version
+
+      - name: Compiler l'application (Apple Silicon + Intel)
+        run: |
+          xcodebuild -project C-SAFE.xcodeproj -target C-SAFE -configuration Release -sdk macosx \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SYMROOT="$PWD/build" build 2>&1 | tee build.log
+          test -d build/Release/C-SAFE.app
+
+      - name: Garder le journal de compilation en cas d'erreur
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journal-compilation
+          path: build.log
+
+      - name: Signer (signature locale)
+        run: |
+          codesign --force --deep --sign - build/Release/C-SAFE.app
+          codesign --verify --verbose build/Release/C-SAFE.app
+
+      - name: Créer le fichier C-SAFE.dmg
+        run: |
+          mkdir dmg
+          cp -R build/Release/C-SAFE.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "C-SAFE" -srcfolder dmg -ov -format UDZO C-SAFE.dmg
+
+      - name: Garder le .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: C-SAFE-mac
+          path: C-SAFE.dmg
+
+      - name: Publier la version à partager
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('version-{0}', github.run_number) }}
+          name: ${{ github.ref_type == 'tag' && format('C-SAFE {0}', github.ref_name) || format('C-SAFE — version {0}', github.run_number) }}
+          body: |
+            C-SAFE pour Mac (Apple Silicon et Intel), macOS 14 ou plus récent.
+
+            Installation : ouvrir C-SAFE.dmg, glisser C-SAFE dans Applications.
+            Premier lancement : si macOS bloque l'ouverture, aller dans
+            Réglages Système > Confidentialité et sécurité > « Ouvrir quand même ».
+          files: C-SAFE.dmg
+          make_latest: true
