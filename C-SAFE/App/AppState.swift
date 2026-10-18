@@ -343,6 +343,12 @@ final class AppState: ObservableObject {
         return (fresh, sources.filter { done.contains($0) })
     }
 
+    /// « CamA FX2 » (ou « SON » pour le son)
+    func nameWithModel(_ source: String) -> String {
+        let t = typeFor(source: source)
+        return t.isEmpty ? source : "\(source) \(t)"
+    }
+
     static func isCamLetter(_ s: String) -> Bool {
         Naming.label(source: s).range(of: #"^Cam[A-Z]$"#, options: .regularExpression) != nil
     }
@@ -374,9 +380,9 @@ final class AppState: ObservableObject {
         let name = String(plan.display.split(separator: "/").last ?? "")
         if let r = name.range(of: #"_Carte([0-9]+)$"#, options: .regularExpression),
            let n = Int(name[r].dropFirst("_Carte".count)) {
-            return "\(source) — carte n°\(n)"
+            return "\(nameWithModel(source)) — carte n°\(n)"
         }
-        return "\(source) — carte suivante"
+        return "\(nameWithModel(source)) — carte suivante"
     }
 
     /// Dossier qui sera créé pour cette carte (« CamA_FX3_Carte02 », « SON », « HF2 »…)

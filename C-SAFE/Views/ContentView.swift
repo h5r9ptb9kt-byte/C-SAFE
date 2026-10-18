@@ -207,7 +207,8 @@ struct ShootPanel: View {
                             .foregroundStyle(Theme.muted)
                         ForEach(state.done, id: \.self) { s in
                             let nums = state.doneNumbers[s] ?? []
-                            Text(nums.isEmpty ? "✓ \(s)" : "✓ \(s) · n°" + nums.map(String.init).joined(separator: ", "))
+                            let model = state.lockedType(s).flatMap { $0.isEmpty ? nil : " \($0)" } ?? ""
+                            Text(nums.isEmpty ? "✓ \(s)\(model)" : "✓ \(s)\(model) · n°" + nums.map(String.init).joined(separator: ", "))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(Theme.green)
                                 .padding(.horizontal, 6)
@@ -655,14 +656,6 @@ struct CopyPanel: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
-            }
-
-            if !state.parallelInfo.isEmpty {
-                Label(state.parallelInfo, systemImage: "square.stack.3d.down.right")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help("Choisi automatiquement d'après tes disques. Chaque carte est toujours copiée en entier sur tous les disques.")
             }
 
             #if os(macOS)
