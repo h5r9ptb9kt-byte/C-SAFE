@@ -14,6 +14,8 @@ permissions:
 jobs:
   mac:
     runs-on: macos-15
+    outputs:
+      sha: ${{ steps.dmgcheck.outputs.sha }}
     steps:
       - name: Récupérer le projet
         uses: actions/checkout@v4
@@ -83,6 +85,7 @@ jobs:
           hdiutil create -volname "C-SAFE" -srcfolder dmg -ov -format UDZO C-SAFE.dmg
 
       - name: Contrôler le .dmg (intégrité + signature de l'app à l'intérieur)
+        id: dmgcheck
         run: |
           hdiutil verify C-SAFE.dmg
           MNT=$(hdiutil attach -nobrowse -readonly C-SAFE.dmg | tail -1 | cut -f3-)
@@ -91,15 +94,33 @@ jobs:
           ls -la "$MNT"
           hdiutil detach "$MNT"
           SHA=$(shasum -a 256 C-SAFE.dmg | cut -d' ' -f1)
-          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "::notice title=SHA-256::$SHA"
 
+      - name: Garder le .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: C-SAFE-mac
+          path: C-SAFE.dmg
+
+
+  ios:
+    runs-on: macos-26
+    steps:
+      - name: Récupérer le projet
+        uses: actions/checkout@v4
+
+      - name: Choisir le Xcode le plus récent (iOS 26)
+        run: |
+          ls -d /Applications/Xcode*.app | while read x; do echo "::notice title=XCODE::$x"; done
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$X" ] && sudo xcode-select -s "$X"
+          xcodebuild -version
+          echo "::notice title=XCODE-CHOISI::$(xcodebuild -version | tr '\n' ' ') · SDK iOS $(xcrun --sdk iphoneos --show-sdk-version)"
+
       - name: Compiler l'app iPhone / iPad (non signée, pour SideStore)
-        id: ios
-        continue-on-error: true
         run: |
           set -o pipefail
-          ls -d /Applications/Xcode*.app | while read x; do echo "::notice title=XCODE::$x"; done
           xcodebuild -project C-SAFE.xcodeproj -target C-SAFE -configuration Release -sdk iphoneos \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             MARKETING_VERSION="1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
@@ -108,21 +129,30 @@ jobs:
           test -x "$APP/C-SAFE"
           mkdir -p ipa/Payload && ditto "$APP" ipa/Payload/C-SAFE.app
           (cd ipa && zip -qry ../C-SAFE.ipa Payload)
-          ls -la C-SAFE.ipa
-          echo "::notice title=IPA::$(du -h C-SAFE.ipa | cut -f1) — $(plutil -extract MinimumOSVersion raw $APP/Info.plist)"
+          echo "::notice title=IPA::$(du -h C-SAFE.ipa | cut -f1) · iOS min $(plutil -extract MinimumOSVersion raw $APP/Info.plist) · $(plutil -extract BGTaskSchedulerPermittedIdentifiers json -o - $APP/Info.plist 2>/dev/null)"
 
       - name: Erreurs iOS (lisibles dans les annotations)
-        if: steps.ios.outcome == 'failure'
+        if: failure()
         run: |
           grep -E "\.swift:[0-9]+:[0-9]+: error|error: |BUILD FAILED" build-ios.log | sort -u | head -60 | while IFS= read -r l; do
             echo "::error title=IOS::$(printf '%s' "$l" | sed 's#^.*/C-SAFE/C-SAFE/##' | cut -c1-900)"
           done
 
-      - name: Garder le .dmg
+      - name: Garder le .ipa
         uses: actions/upload-artifact@v4
         with:
-          name: C-SAFE-mac
-          path: C-SAFE.dmg
+          name: C-SAFE-ios
+          path: C-SAFE.ipa
+
+  release:
+    needs: [mac, ios]
+    if: always() && needs.mac.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les fichiers fabriqués
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
       - name: Publier la version à partager
         uses: softprops/action-gh-release@v2
@@ -138,7 +168,7 @@ jobs:
             Guide illustré : « Installer C-SAFE (à lire).pdf » dans le .dmg.
 
             Empreinte SHA-256 du fichier C-SAFE.dmg (pour vérifier qu'il n'a pas été modifié) :
-            ${{ env.SHA }}
+            ${{ needs.mac.outputs.sha }}
           files: |
             C-SAFE.dmg
             C-SAFE.ipa
