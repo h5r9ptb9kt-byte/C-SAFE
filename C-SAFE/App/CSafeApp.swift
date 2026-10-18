@@ -16,7 +16,8 @@ struct CSafeApp: App {
                 .environmentObject(state)
         }
         #if os(macOS)
-        .windowResizability(.contentSize)   // la fenêtre s'ouvre pile à la taille du contenu
+        .defaultSize(width: 430, height: 200)   // la hauteur s'agrandit d'elle-même jusqu'au contenu
+        .windowResizability(.contentMinSize)    // largeur réglable à la souris, hauteur jamais plus petite que le contenu
         #endif
     }
 }

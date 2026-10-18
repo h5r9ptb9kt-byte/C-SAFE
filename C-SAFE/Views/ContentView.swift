@@ -25,10 +25,12 @@ struct ContentView: View {
         ZStack {
             Theme.background.ignoresSafeArea()
             #if os(macOS)
-            // Mac : la fenêtre prend exactement la taille du contenu (pas de barre de défilement)
-            panels
-                .frame(width: 470)
-                .fixedSize(horizontal: false, vertical: true)
+            // Mac : hauteur pile à la taille du contenu, largeur réglable (et retenue par macOS)
+            VStack(spacing: 0) {
+                panels.fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .frame(minWidth: 400, idealWidth: 430, maxWidth: 760)
             #else
             ScrollView {
                 panels
