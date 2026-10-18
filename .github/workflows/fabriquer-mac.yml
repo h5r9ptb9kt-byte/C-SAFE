@@ -167,11 +167,14 @@ jobs:
           if [ -n "$IPAD" ]; then xcrun simctl boot "$IPAD"; xcrun simctl bootstatus "$IPAD" -b; xcrun simctl install "$IPAD" "$APP"; xcrun simctl launch "$IPAD" "$BID"; sleep 12; xcrun simctl io "$IPAD" screenshot apercu/ipad.png; fi
           ls -la apercu
       - name: Publier les captures (version « apercu », non affichée comme dernière version)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view apercu >/dev/null 2>&1 || gh release create apercu --title "Aperçus iPhone / iPad" --notes "Captures automatiques" --prerelease --latest=false
-          gh release upload apercu apercu/*.png --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apercu
+          name: Aperçus iPhone / iPad
+          body: Captures automatiques de l'app dans le simulateur.
+          prerelease: true
+          make_latest: false
+          files: apercu/*.png
 
   release:
     needs: [mac, ios]
