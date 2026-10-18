@@ -170,7 +170,8 @@ final class AppState: ObservableObject {
         project = s.project
         source = s.source
         type = s.type
-        sources = s.sources.isEmpty ? Naming.defaultSources : s.sources
+        // CamG / CamH ne sont plus proposées par défaut (rajoutables avec « Autre… »)
+        sources = s.sources.isEmpty ? Naming.defaultSources : s.sources.filter { $0 != "CamG" && $0 != "CamH" }
         types = s.types.isEmpty ? Naming.defaultTypes : s.types
         camTypes = s.camTypes
         destinations = s.destinations

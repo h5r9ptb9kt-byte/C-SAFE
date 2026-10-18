@@ -23,11 +23,11 @@ CE QUE FAIT C-SAFE
   d'une source déjà faite : « Déjà copiées ce jour — carte suivante ».
 - Cartes copiées en même temps : choisi tout seul (SSD : 2 ; disque dur : 1), chaque
   carte allant toujours EN ENTIER sur tous les disques.
-  Progression et   bouton d'annulation sur chaque carte.
+  Progression et bouton d'annulation sur chaque carte.
 - Reconnaît une carte déjà copiée par son contenu (même renommée, même dans un
   autre projet) et indique où et sur quel disque. En cas d'échec, le dossier est
   marqué « _INCOMPLET » : NE FORMATE PAS LA CARTE dans ce cas.
-- Sources (CamA…CamH, SON, HF1…HF4) et types (FX2, FX3, FX5, Osmo 4P, 360,
+- Sources (CamA…CamF, SON, HF1…HF4) et types (FX2, FX3, FX5, Osmo 4P, 360,
   Drone, GoPro) personnalisables avec « Autre… ».
 
 MAC : tout est automatique (détection de la carte, copie, vérification, éjection).

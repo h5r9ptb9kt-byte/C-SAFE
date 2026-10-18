@@ -284,19 +284,20 @@ struct ChoiceMenu: View {
 
     var body: some View {
         Menu {
+            // « Carte suivante » d'abord : c'est le choix le plus fréquent pendant un tournage
+            if !extraItems.isEmpty {
+                Section(extraTitle) {
+                    ForEach(extraItems, id: \.self) { item in
+                        Button { onSelectExtra(item) } label: { Label(extraLabel(item), systemImage: "plus.square.on.square") }
+                    }
+                }
+                Divider()
+            }
             ForEach(items, id: \.self) { item in
                 Button {
                     onSelect(item)
                 } label: {
                     if item == value { Label(item, systemImage: "checkmark") } else { Text(item) }
-                }
-            }
-            if !extraItems.isEmpty {
-                Divider()
-                Section(extraTitle) {
-                    ForEach(extraItems, id: \.self) { item in
-                        Button { onSelectExtra(item) } label: { Label(extraLabel(item), systemImage: "plus.square.on.square") }
-                    }
                 }
             }
             Divider()
