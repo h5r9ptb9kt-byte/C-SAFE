@@ -538,6 +538,42 @@ final class OffloadJob {
         return out.sorted { $0.rel < $1.rel }
     }
 
+    /// Marque / format reconnus d'après l'arborescence de la carte (affiché sous son nom).
+    static func cameraKind(_ root: URL) -> String? {
+        let fm = FileManager.default
+        let top = Set(Naming.list(root).map { $0.uppercased() })
+        func has(_ path: String) -> Bool { fm.fileExists(atPath: root.appendingPathComponent(path).path) }
+        func dcimHas(_ needle: String) -> Bool {
+            Naming.list(root.appendingPathComponent("DCIM")).contains { $0.uppercased().contains(needle) }
+        }
+        if top.contains("PRIVATE") {
+            if has("PRIVATE/M4ROOT") { return "Sony XAVC" }
+            if has("PRIVATE/XDROOT") { return "Sony XDCAM" }
+            if has("PRIVATE/AVCHD") { return "AVCHD" }
+        }
+        if top.contains("XDROOT") { return "Sony XDCAM" }
+        if top.contains("M4ROOT") { return "Sony" }
+        if top.contains("CONTENTS") { return "Panasonic P2" }
+        if top.contains("CANONMSC") || dcimHas("CANON") { return "Canon" }
+        if top.contains("DCIM") {
+            if dcimHas("GOPRO") { return "GoPro" }
+            if dcimHas("DJI") { return "DJI" }
+            if dcimHas("INSTA") || dcimHas("CAMERA01") { return "Insta360" }
+            if dcimHas("_PANA") { return "Panasonic" }
+            if dcimHas("NIKON") || dcimHas("NCZ") { return "Nikon" }
+            if dcimHas("_FUJI") { return "Fujifilm" }
+            return "Photo / vidéo (DCIM)"
+        }
+        let exts = Set(Naming.list(root).map { ($0 as NSString).pathExtension.lowercased() })
+        if exts.contains("braw") { return "Blackmagic RAW" }
+        if exts.contains("r3d") || top.contains("RED") { return "RED" }
+        if top.contains("ARRI") || exts.contains("ari") || exts.contains("arx") { return "ARRI" }
+        if !exts.isEmpty && exts.isSubset(of: ["wav", "bwf", "txt", "xml", "csv", "sys", "ini", ""]) && exts.contains("wav") {
+            return "Son (WAV)"
+        }
+        return nil
+    }
+
     static func looksLikeCameraCard(_ root: URL) -> Bool {
         let names = Naming.list(root)
         if names.contains(where: { cameraMarkers.contains($0.uppercased()) }) { return true }

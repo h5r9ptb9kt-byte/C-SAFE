@@ -136,10 +136,12 @@ final class AppState: ObservableObject {
         let v = try? url.resourceValues(forKeys: keys)
         let isRoot = v?.volume?.standardizedFileURL.path == url.standardizedFileURL.path
         let name = isRoot ? (v?.volumeLocalizedName ?? url.lastPathComponent) : url.lastPathComponent
-        var detail = ""
+        var parts: [String] = []
+        if let kind = OffloadJob.cameraKind(url) { parts.append(kind) }
         if isRoot, let total = v?.volumeTotalCapacity, let free = v?.volumeAvailableCapacity, total > 0 {
-            detail = "\(OffloadJob.human(Int64(total - free))) utilisés sur \(OffloadJob.human(Int64(total)))"
+            parts.append("\(OffloadJob.human(Int64(total - free))) sur \(OffloadJob.human(Int64(total)))")
         }
+        let detail = parts.joined(separator: " · ")
         let ejectable = isRoot && ((v?.volumeIsEjectable ?? false) || (v?.volumeIsRemovable ?? false))
         return CardVolume(url: url, name: name, detail: detail,
                           isCamera: OffloadJob.looksLikeCameraCard(url), ejectable: ejectable)
@@ -148,7 +150,7 @@ final class AppState: ObservableObject {
     func refreshCards() {
         #if os(macOS)
         let vols = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? []
-        let mounted = vols.filter { $0.path.hasPrefix("/Volumes/") && isCandidate($0) }
+        let mounted = vols.filter { $0.path.hasPrefix("/Volumes/") && isCandidate($0) && OffloadJob.looksLikeCameraCard($0) }
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
         let extra = pickedCards.filter { p in !mounted.contains { $0.standardizedFileURL.path == p.standardizedFileURL.path } }
         cards = (mounted.map(Self.cardInfo).sorted { ($0.isCamera ? 0 : 1, $0.name) < ($1.isCamera ? 0 : 1, $1.name) })
@@ -229,7 +231,7 @@ final class AppState: ObservableObject {
     }
     var isSoundSource: Bool { Naming.isSound(Naming.label(source: source)) }
     var currentLabel: String { Naming.label(source: source, type: isSoundSource ? "" : type) }
-    var availableSources: [String] { extraCard ? sources : sources.filter { !done.contains($0) } }
+    var availableSources: [String] { sources.filter { !done.contains($0) } }
     var isMac: Bool {
         #if os(macOS)
         return true
@@ -291,6 +293,19 @@ final class AppState: ObservableObject {
         if !Naming.isSound(Naming.label(source: s)), let t = camTypes[s] { type = t }
         save()
         if refreshAfter { refresh() }
+    }
+
+    /// Source déjà copiée ce jour, choisie pour sa carte suivante (Carte02, Carte03…)
+    func selectNextCard(of s: String) {
+        extraCard = true
+        selectSource(s)
+    }
+
+    /// Libellé « CamB → Carte02 » pour les sources déjà faites
+    func nextCardLabel(for s: String) -> String {
+        let lab = Naming.label(source: s, type: Naming.isSound(Naming.label(source: s)) ? "" : (camTypes[s] ?? type))
+        let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: lab)
+        return "\(s) → \(plan.display.split(separator: "/").last.map(String.init) ?? "")"
     }
 
     func selectType(_ t: String) {

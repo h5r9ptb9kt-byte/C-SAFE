@@ -18,7 +18,7 @@ CE QUE FAIT C-SAFE
 - Noms compatibles avec Premiere, Resolve, Final Cut, Avid, Windows, exFAT et NAS :
   sans accent ni espace. Les fichiers de la carte ne sont jamais renommés.
 - Une source déjà copiée dans la journée disparaît de la liste.
-  Pour une 2e, 3e… carte de la même source : active « Carte supplémentaire ».
+  Pour une 2e, 3e… carte : choisis-la dans « Déjà copiées — carte suivante ».
 - Prévient si une carte a déjà été copiée. En cas d'échec, le dossier est
   marqué « _INCOMPLET » : NE FORMATE PAS LA CARTE dans ce cas.
 - Sources (CamA…CamH, SON, HF1…HF4) et types (FX2, FX3, FX5, Osmo 4P, 360,

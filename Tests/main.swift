@@ -53,6 +53,10 @@ func run(force: Bool = false) -> OffloadResult {
     return result!
 }
 
+check(OffloadJob.cameraKind(card) == "Sony XAVC", "marque reconnue : \(OffloadJob.cameraKind(card) ?? "aucune")")
+check(OffloadJob.looksLikeCameraCard(card), "carte caméra reconnue")
+check(!OffloadJob.looksLikeCameraCard(d1), "disque vide non pris pour une carte")
+
 // 1. Copie complète
 let t0 = Date()
 let r1 = run()

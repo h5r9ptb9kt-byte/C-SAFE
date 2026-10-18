@@ -155,12 +155,16 @@ struct ShootPanel: View {
             }
             HStack(spacing: 6) {
                 FieldLabel(text: "Source").frame(width: 44, alignment: .leading)
-                ChoiceMenu(value: state.source,
+                ChoiceMenu(value: state.extraCard ? "\(state.source) · carte suiv." : state.source,
                            items: state.availableSources,
                            removable: !Naming.defaultSources.contains(state.source),
-                           onSelect: { state.selectSource($0) },
+                           onSelect: { state.extraCard = false; state.selectSource($0) },
                            onOther: { askName(.source) },
-                           onRemove: { state.removeSource($0) })
+                           onRemove: { state.removeSource($0) },
+                           extraTitle: "Déjà copiées — carte suivante",
+                           extraItems: state.done,
+                           extraLabel: { state.nextCardLabel(for: $0) },
+                           onSelectExtra: { state.selectNextCard(of: $0) })
                 ChoiceMenu(value: state.isSoundSource ? "—" : state.type,
                            items: state.types,
                            removable: true,
@@ -200,15 +204,6 @@ struct ShootPanel: View {
                     }
                 }
             }
-
-            Toggle(isOn: $state.extraCard) {
-                Text("Carte supplémentaire (2e, 3e…) d'une source déjà faite")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.cream)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .tint(Theme.orange)
 
             HStack(alignment: .top, spacing: 5) {
                 Image(systemName: "folder.fill")
@@ -281,6 +276,10 @@ struct ChoiceMenu: View {
     let onSelect: (String) -> Void
     let onOther: () -> Void
     let onRemove: (String) -> Void
+    var extraTitle: String = ""
+    var extraItems: [String] = []
+    var extraLabel: (String) -> String = { $0 }
+    var onSelectExtra: (String) -> Void = { _ in }
 
     var body: some View {
         Menu {
@@ -289,6 +288,14 @@ struct ChoiceMenu: View {
                     onSelect(item)
                 } label: {
                     if item == value { Label(item, systemImage: "checkmark") } else { Text(item) }
+                }
+            }
+            if !extraItems.isEmpty {
+                Divider()
+                Section(extraTitle) {
+                    ForEach(extraItems, id: \.self) { item in
+                        Button { onSelectExtra(item) } label: { Label(extraLabel(item), systemImage: "plus.square.on.square") }
+                    }
                 }
             }
             Divider()
