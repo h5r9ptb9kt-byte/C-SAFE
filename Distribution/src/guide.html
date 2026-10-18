@@ -50,6 +50,23 @@ footer{margin-top:18px;color:#7b8a99;font-size:9pt;text-align:center}
 .btn.blue{background:#2f7bf6;color:#fff}
 .btn.hl{outline:4px solid var(--orange);outline-offset:2px}
 .twocol{display:flex;gap:18px;align-items:flex-start}
+
+.p3 .band{background:var(--bg);color:var(--cream);border-radius:14px;padding:16px 22px;display:flex;align-items:center;gap:16px}
+.p3 .band img{width:54px;height:54px}
+.p3 .band h2{margin:0;font-size:20pt}.p3 .band p{margin:2px 0 0;color:var(--muted);font-size:10.5pt}
+.gold{display:flex;gap:16px;align-items:flex-start;margin:16px 0;padding:16px 20px;border-radius:14px;background:linear-gradient(135deg,#fff3e8,#ffe6d2);border:2px solid var(--orange)}
+.gico{flex:0 0 44px;height:44px;border-radius:50%;background:var(--orange);color:#fff;font:900 22pt/44px Arial;text-align:center}
+.gold h3{margin:0 0 6px;font-size:14pt;color:#b4521a}.gold p{margin:0 0 6px}
+.pill{display:inline-block;margin-top:6px;background:var(--green);color:#fff;font-weight:700;padding:5px 14px;border-radius:20px}
+.small{font-size:10pt;color:#6b4a35}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.card{background:#fff;border:1px solid #e3e7ec;border-radius:14px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-top:5px solid var(--c);font-size:10.5pt;page-break-inside:avoid}
+.c-green{--c:var(--green)}.c-cyan{--c:var(--cyan)}.c-orange{--c:var(--orange)}.c-muted{--c:var(--muted)}
+.ch{font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;align-items:center;gap:8px}.ch i{font-weight:400;color:#7b8a99;font-size:10pt}
+.ci{width:28px;height:28px;border-radius:8px;background:#f1f4f7;display:inline-flex;align-items:center;justify-content:center;font-size:13pt}
+.card ul{margin:0;padding-left:18px}.card li{margin:0 0 5px}
+.card dl{margin:0}.card dt{font-weight:700;margin-top:4px}.card dd{margin:0 0 4px}
+.card p{margin:0 0 6px}.card code{font-size:8.5pt}
 </style></head><body>
 
 <header>
@@ -114,28 +131,5 @@ et disques). Clique <b class="o">Autoriser</b>, sinon C-SAFE ne verra ni tes car
 <span class="btn">Ne pas autoriser</span><span class="btn blue hl">Autoriser</span></div></div>
 </div></div>
 
-<div class="box tip pb"><b>🔒 Pourquoi c'est sûr</b><br>
-• L'app est fabriquée automatiquement à partir de son code source, par les serveurs de GitHub. Personne ne la modifie à la main.<br>
-• Chaque version est testée avant d'être publiée : copie de 2 Go, vérification MD5, mémoire et doublons.<br>
-• L'app est signée, et sa signature est contrôlée dans le .dmg. Si le fichier était abîmé ou modifié pendant l'envoi, macOS refuserait de l'ouvrir.<br>
-• Tu ne désactives aucune protection du Mac (Gatekeeper reste activé). Tu donnes ton accord pour cette app seulement.<br>
-• C-SAFE n'envoie rien sur Internet. Elle lit tes cartes et écrit sur les disques que tu choisis, rien d'autre.</div>
 
-<div class="box tip"><b>🧾 Vérifier le fichier (facultatif, pour les plus pointilleux)</b><br>
-Dans l'app Terminal, tape la commande suivante, puis glisse C-SAFE.dmg dans la fenêtre et appuie sur Entrée :
-<code>shasum -a 256 </code>
-Le code obtenu doit être identique à l'« empreinte SHA-256 » indiquée dans le mail ou sur la page de la version.</div>
-
-<div class="box tip"><b>🛟 En cas de souci</b><br>
-• <b>« C-SAFE est endommagée »</b> : supprime-la des Applications, télécharge à nouveau le .dmg et recommence.<br>
-• <b>Pas de bouton « Ouvrir quand même »</b> : relance C-SAFE (étape 3), puis retourne dans les Réglages.<br>
-• <b>Mise à jour</b> : même chose avec le nouveau .dmg. Glisse-le dans Applications, puis « Remplacer ».
-Il faudra peut-être refaire les étapes 3 à 5 une fois.<br>
-• <b>Toujours bloqué ?</b> En dernier recours, dans Terminal, retire le marquage « téléchargé d'Internet » de l'app seulement :
-<code>xattr -dr com.apple.quarantine /Applications/C-SAFE.app</code></div>
-
-<div class="box ok"><b>⚠️ La règle d'or</b> : ne formate jamais une carte tant que C-SAFE n'a pas affiché
-« <b>copié et vérifié sur tous les disques</b> ». Si un dossier finit par <b>_INCOMPLET</b>, la copie n'est pas bonne : garde la carte et recommence.</div>
-
-<footer>C-SAFE · C-FOCUS</footer>
 </body></html>
