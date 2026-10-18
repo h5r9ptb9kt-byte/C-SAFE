@@ -48,8 +48,13 @@ jobs:
         run: |
           set -o pipefail
           swiftc -O -swift-version 5 C-SAFE/Engine/Naming.swift C-SAFE/Engine/OffloadEngine.swift Tests/main.swift -o enginetest
-          ./enginetest 2>&1 | tee test.log
-          grep -E "^(TEST|MESURE|BILAN|RESULTAT)" test.log | while IFS= read -r l; do echo "::notice title=TEST::$l"; done
+          status=0
+          ./enginetest > test.log 2>&1 || status=$?
+          cat test.log
+          grep -E "^(TEST ÉCHEC|BILAN)" test.log | while IFS= read -r l; do echo "::error title=TEST::$l"; done
+          grep -E "^(TEST OK|MESURE|RESULTAT)" test.log | head -9 | while IFS= read -r l; do echo "::notice title=TEST::$l"; done
+          tail -5 test.log | while IFS= read -r l; do echo "::warning title=TEST-FIN::$l"; done
+          exit $status
 
       - name: Signer (signature locale)
         run: |
