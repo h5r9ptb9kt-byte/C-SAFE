@@ -23,11 +23,19 @@ jobs:
 
       - name: Compiler l'application (Apple Silicon + Intel)
         run: |
+          set -o pipefail
           xcodebuild -project C-SAFE.xcodeproj -target C-SAFE -configuration Release -sdk macosx \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             SYMROOT="$PWD/build" build 2>&1 | tee build.log
-          test -d build/Release/C-SAFE.app
+          test -x build/Release/C-SAFE.app/Contents/MacOS/C-SAFE
+
+      - name: Erreurs Swift (lisibles dans les annotations)
+        if: failure()
+        run: |
+          grep -E "\.swift:[0-9]+:[0-9]+: error|error: |BUILD FAILED|The following build commands failed" build.log | sort -u | head -60 | while IFS= read -r l; do
+            echo "::error title=SWIFT::$(printf '%s' "$l" | sed 's#^.*/C-SAFE/C-SAFE/##' | cut -c1-900)"
+          done
 
       - name: Garder le journal de compilation en cas d'erreur
         if: failure()
