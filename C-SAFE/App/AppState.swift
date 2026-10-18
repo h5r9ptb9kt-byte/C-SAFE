@@ -87,7 +87,29 @@ final class AppState: ObservableObject {
     private var copiedWhere: [String: String] = [:]   // carte → « Projet/J1_…/CamA_…/CamA_…_Carte01 »
     private var refreshTimer: Timer?
     private var autoWatch: Bool
-    private var queue: [(url: URL, force: Bool, scoped: Bool)] = []
+    /// Une carte à copier. label/day/project sont figés pour « Recommencer » (même numéro, même jour).
+    private struct QueueItem {
+        let url: URL
+        let force: Bool
+        let scoped: Bool
+        var label: String? = nil
+        var day: String? = nil
+        var project: String? = nil
+    }
+    private var queue: [QueueItem] = []
+    private var currentItem: QueueItem?
+
+    /// Copie ratée, interrompue ou incomplète : affichée avec « Recommencer »
+    struct CopyFailure: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        let source: URL
+        let label: String
+        let day: String
+        let project: String
+    }
+    @Published var failure: CopyFailure?
     private var job: OffloadJob?
     private var resolved: [UUID: URL] = [:]
     private var activity: NSObjectProtocol?
@@ -408,9 +430,10 @@ final class AppState: ObservableObject {
 
     // MARK: - File d'attente des cartes
 
-    func enqueue(_ url: URL, force: Bool = false, scoped: Bool = false) {
+    func enqueue(_ url: URL, force: Bool = false, scoped: Bool = false,
+                 label: String? = nil, day: String? = nil, project: String? = nil) {
         guard !queue.contains(where: { $0.url == url }) else { return }
-        queue.append((url, force, scoped))
+        queue.append(QueueItem(url: url, force: force, scoped: scoped, label: label, day: day, project: project))
         if busy { addLog("En file d'attente : \(url.lastPathComponent)") }
         startNext()
     }
@@ -422,7 +445,11 @@ final class AppState: ObservableObject {
             queue.removeAll()
             return
         }
-        let item = queue.removeFirst()
+        var item = queue.removeFirst()
+        item.label = item.label ?? currentLabel
+        item.day = item.day ?? day
+        item.project = item.project ?? project
+        currentItem = item
         activeCard = item.url
         busy = true
         progress = 0
@@ -432,8 +459,8 @@ final class AppState: ObservableObject {
         save()
 
         let scoped = item.scoped
-        let newJob = OffloadJob(source: item.url, destinations: destinationURLs(), project: project,
-                                label: currentLabel, day: day, force: item.force) { [weak self] ev in
+        let newJob = OffloadJob(source: item.url, destinations: destinationURLs(), project: item.project ?? project,
+                                label: item.label ?? currentLabel, day: item.day ?? day, force: item.force) { [weak self] ev in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.handle(ev, scoped: scoped) }
             }
@@ -459,6 +486,20 @@ final class AppState: ObservableObject {
         enqueue(r.source, force: true, scoped: scoped)
     }
 
+    /// « Recommencer » : même carte, même source, même jour, même projet.
+    func retry(_ f: CopyFailure) {
+        failure = nil
+        guard FileManager.default.fileExists(atPath: f.source.path) else {
+            failure = CopyFailure(title: "Carte introuvable",
+                                  message: "La carte « \(f.source.lastPathComponent) » n'est plus branchée. Rebranche-la, puis clique « Recommencer ».",
+                                  source: f.source, label: f.label, day: f.day, project: f.project)
+            return
+        }
+        addLog("Nouvelle tentative : \(f.source.lastPathComponent)")
+        let scoped = f.source.startAccessingSecurityScopedResource()
+        enqueue(f.source, force: true, scoped: scoped, label: f.label, day: f.day, project: f.project)
+    }
+
     private func handle(_ ev: OffloadEvent, scoped: Bool) {
         switch ev {
         case .log(let s):
@@ -478,9 +519,11 @@ final class AppState: ObservableObject {
         busy = false
         job = nil
         activeCard = nil
+        let item = currentItem
+        currentItem = nil
         if r.ok {
             copiedCards.insert(r.source.path)
-            copiedWhere[r.source.path] = "\(Naming.sanitize(project))/\(r.display)"
+            copiedWhere[r.source.path] = "\(Naming.sanitize(item?.project ?? project))/\(r.display)"
         }
         if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
         #if os(iOS)
@@ -508,7 +551,25 @@ final class AppState: ObservableObject {
             status = r.message
             lastSuccess = false
             feedback(success: false)
-            errorMessage = r.message
+            let card = r.source.lastPathComponent
+            let title: String
+            let explanation: String
+            if r.cancelled {
+                title = "Copie arrêtée"
+                explanation = "La copie de « \(card) » a été arrêtée avant la fin. Les fichiers déjà copiés sont rangés dans un dossier « _INCOMPLET »."
+            } else if r.verifyFailed {
+                title = "Copie incomplète"
+                explanation = "La vérification a trouvé des fichiers manquants ou différents sur au moins un disque (détail dans le journal et dans _Rapports)."
+            } else {
+                title = "La copie a échoué"
+                explanation = "\(r.message.replacingOccurrences(of: "Erreur : ", with: "").capitalizedFirst)\nVérifie que la carte et les disques sont bien branchés."
+            }
+            failure = CopyFailure(title: title,
+                                  message: explanation + "\n\nNe formate pas la carte. « Recommencer » relance la même copie (même numéro de carte).",
+                                  source: r.source,
+                                  label: item?.label ?? currentLabel,
+                                  day: item?.day ?? day,
+                                  project: item?.project ?? project)
         }
         refresh()
         refreshCards()
@@ -599,4 +660,8 @@ final class AppState: ObservableObject {
         }
     }
     #endif
+}
+
+private extension String {
+    var capitalizedFirst: String { self.prefix(1).uppercased() + String(self.dropFirst()) }
 }

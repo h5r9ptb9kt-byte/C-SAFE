@@ -27,6 +27,14 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     HeaderView()
+                        .alert(state.failure?.title ?? "",
+                               isPresented: Binding(get: { state.failure != nil }, set: { if !$0 { state.failure = nil } }),
+                               presenting: state.failure) { f in
+                            Button("Recommencer") { state.retry(f) }
+                            Button("Fermer", role: .cancel) { state.failure = nil }
+                        } message: { f in
+                            Text(f.message)
+                        }
                     ShootPanel(askName: { nameRequest = $0; newName = "" })
                     TransferPanel(onPickCard: { open(.card) }, onAddDestination: { open(.destination) })
                     CopyPanel(onPickCard: { open(.card) })

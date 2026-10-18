@@ -17,6 +17,8 @@ struct OffloadResult {
     var ok: Bool
     var duplicate: Bool = false
     var display: String = ""
+    var cancelled: Bool = false
+    var verifyFailed: Bool = false
     var message: String
     var name: String = ""
     var source: URL
@@ -137,7 +139,7 @@ final class OffloadJob {
             emit(.finished(result))
         } catch is OffloadCancelled {
             markIncomplete(created)
-            emit(.finished(OffloadResult(ok: false, message: "Copie annulée.", source: source)))
+            emit(.finished(OffloadResult(ok: false, cancelled: true, message: "Copie annulée.", source: source)))
         } catch {
             markIncomplete(created)
             emit(.finished(OffloadResult(ok: false, message: "Erreur : \(error.localizedDescription)", source: source)))
@@ -403,7 +405,8 @@ final class OffloadJob {
         }
 
         if !allOK {
-            return OffloadResult(ok: false, message: "\(shortName) : la vérification a échoué ! Ne formatez pas la carte.",
+            return OffloadResult(ok: false, display: plan.display, verifyFailed: true,
+                                 message: "\(shortName) : la vérification a échoué ! Ne formatez pas la carte.",
                                  name: shortName, source: source)
         }
         return OffloadResult(ok: true, display: plan.display,
