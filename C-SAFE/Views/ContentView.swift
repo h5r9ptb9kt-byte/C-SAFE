@@ -89,7 +89,7 @@ struct ContentView: View {
                         TextField(nameRequest?.hint ?? "", text: $newName)
                         Button("Ajouter") {
                         if let r = nameRequest {
-                        if r.kind == .source { state.addSource(newName, for: r.card) } else { state.addType(newName, for: r.source) }
+                        if r.kind == .source { state.addSource(newName, for: r.card) } else { state.addType(newName, for: r.source, card: r.card) }
                         }
                         nameRequest = nil
                         }
@@ -282,9 +282,14 @@ struct ChoiceMenu: View {
     var extraItems: [String] = []
     var extraLabel: (String) -> String = { $0 }
     var onSelectExtra: (String) -> Void = { _ in }
+    var header: String = ""
 
     var body: some View {
         Menu {
+            if !header.isEmpty {
+                Text(header)
+                Divider()
+            }
             // « Carte suivante » d'abord : c'est le choix le plus fréquent pendant un tournage
             if !extraItems.isEmpty {
                 Section(extraTitle) {
@@ -479,12 +484,14 @@ struct CardRow: View {
                                extraLabel: { state.nextCardText(for: $0) },
                                onSelectExtra: { state.assign($0, to: card) })
                     let isSound = Naming.isSound(Naming.label(source: source))
+                    let locked = isSound ? nil : state.lockedType(source)
                     ChoiceMenu(value: isSound ? "—" : state.typeFor(source: source),
                                items: state.types,
                                removable: true,
-                               onSelect: { state.setType($0, for: source) },
-                               onOther: { askName(NameRequest(kind: .type, source: source)) },
-                               onRemove: { state.removeType($0) })
+                               onSelect: { state.setType($0, for: source, card: card) },
+                               onOther: { askName(NameRequest(kind: .type, card: card, source: source)) },
+                               onRemove: { state.removeType($0) },
+                               header: locked.map { "🔒 \(source) = \($0) aujourd'hui · autre modèle → nouvelle lettre" } ?? "")
                         .disabled(isSound || source == "—")
                         .opacity(isSound ? 0.45 : 1)
                         .help("Type de caméra")

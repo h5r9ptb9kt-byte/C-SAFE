@@ -219,6 +219,12 @@ final class OffloadJob {
             }
         }
 
+        // Une lettre de caméra = un seul modèle par jour (CamA_FX2 et CamA_FX3 le même jour : interdit)
+        if let existing = Naming.conflictingLabel(destinations: destinations, project: project, day: day, label: label) {
+            let base = existing.split(separator: "_", maxSplits: 1).first.map(String.init) ?? existing
+            throw OffloadError(message: "\(base) est déjà « \(existing) » ce jour-là : une caméra ne peut pas avoir deux modèles le même jour. Choisis une autre lettre pour « \(label) ».")
+        }
+
         // Où va la carte ?
         let plan = Naming.plan(destinations: destinations, project: project, day: day, label: label, cardNumber: cardNumber)
         if plan.merge, plan.targets.contains(where: Naming.sonOccupied) {

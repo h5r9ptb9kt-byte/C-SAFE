@@ -157,6 +157,24 @@ check(rN2?.display.hasSuffix("CamD_FX5_Carte02") == true && rN1?.display.hasSuff
 check(Naming.doneCardNumbers(destinations: [d1, d2], project: "Tournage été", day: "J1_2026-10-18", source: "CamD") == [1, 2],
       "pastille « CamD · n°1, 2 »")
 
+// 7. Une lettre de caméra = un seul modèle par jour ; plusieurs lettres peuvent avoir le même modèle
+let PJ = "Tournage été", J1 = "J1_2026-10-18"
+check(Naming.dayLabels(destinations: [d1, d2], project: PJ, day: J1)["CamA"] == "CamA_FX3", "CamA verrouillée sur FX3 le J1")
+check(Naming.conflictingLabel(destinations: [d1, d2], project: PJ, day: J1, label: "CamA_FX2") == "CamA_FX3", "CamA_FX2 refusée le J1 (CamA_FX3 existe)")
+check(Naming.conflictingLabel(destinations: [d1, d2], project: PJ, day: J1, label: "CamA_FX3") == nil, "CamA_FX3 : carte suivante acceptée")
+var rConf: OffloadResult?, rSame: OffloadResult?, rDay2: OffloadResult?
+OffloadJob(source: makeCard("CARTE_CONFLIT", mb: 3), destinations: [d1, d2], project: PJ, label: "CamA_FX2", day: J1,
+           force: false) { ev in if case .finished(let r) = ev { rConf = r } }.run()
+check(rConf?.ok == false && rConf?.message.contains("deux modèles") == true, "moteur : CamA_FX2 bloquée le même jour (\(rConf?.message ?? "?"))")
+check(!fm.fileExists(atPath: d1.appendingPathComponent("Tournage-ete/\(J1)/CamA_FX2").path), "aucun dossier CamA_FX2 créé")
+OffloadJob(source: makeCard("CARTE_FX3_BIS", mb: 6), destinations: [d1, d2], project: PJ, label: "CamE_FX3", day: J1,
+           force: false) { ev in if case .finished(let r) = ev { rSame = r } }.run()
+check(rSame?.ok == true, "plusieurs FX3 le même jour : CamE_FX3 acceptée (\(rSame?.display ?? "?"))")
+OffloadJob(source: makeCard("CARTE_J2", mb: 7), destinations: [d1, d2], project: PJ, label: "CamA_FX2", day: "J2_2026-10-19",
+           force: false) { ev in if case .finished(let r) = ev { rDay2 = r } }.run()
+check(rDay2?.ok == true && rDay2?.display.hasPrefix("J2_2026-10-19/CamA_FX2/") == true, "nouveau jour : CamA peut être une FX2 (\(rDay2?.display ?? "?"))")
+check(Naming.conflictingLabel(destinations: [d1, d2], project: PJ, day: J1, label: "SON") == nil, "le son n'est pas concerné")
+
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")
 let pj = dz.appendingPathComponent("Film")

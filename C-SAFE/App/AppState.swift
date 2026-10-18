@@ -100,6 +100,8 @@ final class AppState: ObservableObject {
     @Published private(set) var lastSuccess: Bool?
     @Published private(set) var log: [LogLine] = []
     @Published private(set) var done: [String] = []
+    /// Modèle déjà utilisé par chaque lettre ce jour-là (« CamA » → « CamA_FX2 »)
+    @Published private(set) var dayLabels: [String: String] = [:]
     /// Numéros des cartes déjà copiées par source (« CamA » → [1, 2])
     @Published private(set) var doneNumbers: [String: [Int]] = [:]
     @Published private(set) var nextPreview = ""
@@ -276,7 +278,17 @@ final class AppState: ObservableObject {
     func sourceFor(_ card: CardVolume) -> String { assignments[card.key] ?? "—" }
 
     func typeFor(source: String) -> String {
-        Naming.isSound(Naming.label(source: source)) ? "" : (camTypes[source] ?? types.first ?? "")
+        if Naming.isSound(Naming.label(source: source)) { return "" }
+        return lockedType(source) ?? camTypes[source] ?? types.first ?? ""
+    }
+
+    /// Modèle imposé à cette lettre parce qu'elle a déjà été copiée ce jour-là (nil = libre)
+    func lockedType(_ source: String) -> String? {
+        let base = Naming.label(source: source)
+        guard !Naming.isSound(base), let folder = dayLabels[base] else { return nil }
+        if let t = types.first(where: { Naming.label(source: source, type: $0) == folder }) { return t }
+        if let t = camTypes[source], Naming.label(source: source, type: t) == folder { return t }
+        return folder == base ? "" : String(folder.dropFirst(base.count + 1))
     }
 
     func labelFor(source: String) -> String {
@@ -289,10 +301,29 @@ final class AppState: ObservableObject {
         addLog("« \(card.name) » → \(source)")
     }
 
-    func setType(_ t: String, for source: String) {
-        camTypes[source] = t
-        save()
-        objectWillChange.send()
+    /// Change le modèle. Une lettre déjà copiée ce jour-là garde son modèle : la carte reçoit
+    /// alors la prochaine lettre libre avec le nouveau modèle (CamA_FX2 existe → CamD_FX3).
+    func setType(_ t: String, for source: String, card: CardVolume? = nil) {
+        defer { save(); objectWillChange.send() }
+        guard let locked = lockedType(source),
+              Naming.label(source: source, type: locked) != Naming.label(source: source, type: t) else {
+            camTypes[source] = t
+            return
+        }
+        guard let card else {
+            addLog("\(source) est déjà « \(Naming.label(source: source, type: locked)) » aujourd'hui : modèle inchangé.")
+            return
+        }
+        let taken = Set(assignments.filter { $0.key != card.key }.map(\.value))
+        if let target = sources.first(where: {
+            !Naming.isSound(Naming.label(source: $0)) && !done.contains($0) && !taken.contains($0) && lockedType($0) == nil
+        }) {
+            camTypes[target] = t
+            assign(target, to: card)
+            addLog("\(source) est déjà une \(locked) aujourd'hui : cette carte devient \(Naming.label(source: target, type: t)).")
+        } else {
+            errorMessage = "\(source) est déjà une \(locked) aujourd'hui et il n'y a plus de lettre libre. Ajoute une caméra avec « Autre… »."
+        }
     }
 
     /// Sources proposées pour une carte : toutes sauf celles attribuées à une autre carte
@@ -478,6 +509,8 @@ final class AppState: ObservableObject {
         let shift = dayPlan.shifted.map { DayShift(j: $0.j, date: $0.date) }
         if shift != dayShift { dayShift = shift }
         done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
+        let labels = Naming.dayLabels(destinations: urls, project: project, day: day)
+        if labels != dayLabels { dayLabels = labels }
         doneNumbers = Dictionary(uniqueKeysWithValues: done.map {
             ($0, Naming.doneCardNumbers(destinations: urls, project: project, day: day, source: $0))
         })
@@ -504,11 +537,11 @@ final class AppState: ObservableObject {
     }
 
     /// Nouveau type (« FX6 »…) ajouté à la liste et attribué à la source
-    func addType(_ name: String, for source: String) {
+    func addType(_ name: String, for source: String, card: CardVolume? = nil) {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !n.isEmpty else { return }
         if !types.contains(n) { types.append(n) }
-        setType(n, for: source)
+        setType(n, for: source, card: card)
     }
 
     func removeType(_ name: String) {

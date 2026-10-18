@@ -304,6 +304,33 @@ enum Naming {
         return nums.sorted()
     }
 
+    // MARK: - Une lettre de caméra = un seul modèle par jour
+
+    /// Dossier caméra déjà créé ce jour-là pour chaque lettre : « CamA » → « CamA_FX2 ».
+    /// Plusieurs lettres peuvent avoir le même modèle ; une lettre n'a qu'un modèle par jour.
+    static func dayLabels(destinations: [URL], project: String, day: String) -> [String: String] {
+        var out: [String: String] = [:]
+        for d in destinations {
+            let dayDir = d.appendingPathComponent(sanitize(project)).appendingPathComponent(day)
+            for e in list(dayDir).sorted() where !e.hasPrefix(".") && !e.hasPrefix("_") && e != "SON" {
+                let p = dayDir.appendingPathComponent(e)
+                guard isDir(p), list(p).contains(where: { !$0.contains("_INCOMPLET") && !$0.hasPrefix(".") }) else { continue }
+                let base = String(e.split(separator: "_", maxSplits: 1).first ?? Substring(e))
+                if out[base] == nil { out[base] = e }
+            }
+        }
+        return out
+    }
+
+    /// « CamA_FX3 » alors que « CamA_FX2 » existe déjà ce jour-là → renvoie « CamA_FX2 »
+    static func conflictingLabel(destinations: [URL], project: String, day: String, label: String) -> String? {
+        guard !isSound(label) else { return nil }
+        let base = String(label.split(separator: "_", maxSplits: 1).first ?? Substring(label))
+        guard let existing = dayLabels(destinations: destinations, project: project, day: day)[base],
+              existing != label else { return nil }
+        return existing
+    }
+
     // MARK: - Sources déjà déchargées ce jour-là
 
     static func doneSources(destinations: [URL], project: String, day: String, sources: [String]) -> [String] {
