@@ -94,6 +94,30 @@ jobs:
           echo "SHA=$SHA" >> "$GITHUB_ENV"
           echo "::notice title=SHA-256::$SHA"
 
+      - name: Compiler l'app iPhone / iPad (non signée, pour SideStore)
+        id: ios
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ls -d /Applications/Xcode*.app | while read x; do echo "::notice title=XCODE::$x"; done
+          xcodebuild -project C-SAFE.xcodeproj -target C-SAFE -configuration Release -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            SYMROOT="$PWD/build-ios" build 2>&1 | tee build-ios.log
+          APP=build-ios/Release-iphoneos/C-SAFE.app
+          test -x "$APP/C-SAFE"
+          mkdir -p ipa/Payload && ditto "$APP" ipa/Payload/C-SAFE.app
+          (cd ipa && zip -qry ../C-SAFE.ipa Payload)
+          ls -la C-SAFE.ipa
+          echo "::notice title=IPA::$(du -h C-SAFE.ipa | cut -f1) — $(plutil -extract MinimumOSVersion raw $APP/Info.plist)"
+
+      - name: Erreurs iOS (lisibles dans les annotations)
+        if: steps.ios.outcome == 'failure'
+        run: |
+          grep -E "\.swift:[0-9]+:[0-9]+: error|error: |BUILD FAILED" build-ios.log | sort -u | head -60 | while IFS= read -r l; do
+            echo "::error title=IOS::$(printf '%s' "$l" | sed 's#^.*/C-SAFE/C-SAFE/##' | cut -c1-900)"
+          done
+
       - name: Garder le .dmg
         uses: actions/upload-artifact@v4
         with:
@@ -115,5 +139,8 @@ jobs:
 
             Empreinte SHA-256 du fichier C-SAFE.dmg (pour vérifier qu'il n'a pas été modifié) :
             ${{ env.SHA }}
-          files: C-SAFE.dmg
+          files: |
+            C-SAFE.dmg
+            C-SAFE.ipa
+          fail_on_unmatched_files: false
           make_latest: true
