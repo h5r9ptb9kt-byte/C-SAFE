@@ -233,7 +233,7 @@ final class AppState: ObservableObject {
         } else {
             shootDay = nil
         }
-        done =Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
+        done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
         if !extraCard, done.contains(source), let first = availableSources.first {
             addLog("Source « \(source) » déjà copiée ce jour → « \(first) » sélectionnée.")
             selectSource(first, refreshAfter: false)
