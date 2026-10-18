@@ -41,6 +41,17 @@ jobs:
           codesign --force --deep --sign - build/Release/C-SAFE.app
           codesign --verify --verbose build/Release/C-SAFE.app
 
+      - name: Diagnostic du paquet (lisible dans les annotations)
+        if: always()
+        run: |
+          APP=build/Release/C-SAFE.app
+          enc() { python3 -c 'import sys;print(sys.stdin.read()[:3500].replace("%","%25").replace("\r","").replace("\n","%0A"))'; }
+          echo "::warning title=DIAG-arbo::$( (ls -la "$APP" "$APP"/Contents "$APP"/Contents/MacOS 2>&1; find "$APP" -maxdepth 2 2>&1 | head -40) | enc)"
+          echo "::warning title=DIAG-plist::$(plutil -p "$APP"/Contents/Info.plist 2>&1 | enc)"
+          echo "::warning title=DIAG-binaire::$( (file "$APP"/Contents/MacOS/* 2>&1; lipo -info "$APP"/Contents/MacOS/* 2>&1; otool -l "$APP"/Contents/MacOS/* 2>&1 | grep -A4 -E 'LC_BUILD_VERSION' | head -20) | enc)"
+          echo "::warning title=DIAG-signature::$( (codesign -dvvv "$APP" 2>&1; spctl -a -vv "$APP" 2>&1; sw_vers) | enc)"
+          echo "::warning title=DIAG-log::$(grep -E 'error|warning: |BUILD (SUCCEEDED|FAILED)|Xcode' build.log 2>&1 | sort -u | head -40 | enc)"
+
       - name: Créer le fichier C-SAFE.dmg
         run: |
           mkdir dmg
