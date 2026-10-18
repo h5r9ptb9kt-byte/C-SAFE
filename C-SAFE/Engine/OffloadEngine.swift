@@ -66,20 +66,23 @@ private final class ResultsBox {
 enum History {
     typealias Table = [String: [String: String]]
 
-    static func url(_ projectDir: URL) -> URL {
-        projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent(Naming.historyFile)
+    /// Ancien nom du dossier de rapports (versions précédentes de C-SAFE), relu pour la compatibilité
+    static let legacyDir = "_Rapports"
+
+    static func url(_ projectDir: URL, dir: String = Naming.reportDir) -> URL {
+        projectDir.appendingPathComponent(dir).appendingPathComponent(Naming.historyFile)
     }
 
-    static func load(_ projectDir: URL) -> Table {
-        guard let d = try? Data(contentsOf: url(projectDir)),
+    static func load(_ projectDir: URL, dir: String = Naming.reportDir) -> Table {
+        guard let d = try? Data(contentsOf: url(projectDir, dir: dir)),
               let t = try? JSONDecoder().decode(Table.self, from: d) else { return [:] }
         return t
     }
 
-    static func save(_ projectDir: URL, _ t: Table) {
+    static func save(_ projectDir: URL, _ t: Table, dir: String = Naming.reportDir) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let d = try? enc.encode(t) { try? d.write(to: url(projectDir), options: .atomic) }
+        if let d = try? enc.encode(t) { try? d.write(to: url(projectDir, dir: dir), options: .atomic) }
     }
 }
 
@@ -181,8 +184,9 @@ final class OffloadJob {
         // Doublon ? La carte est reconnue par son contenu (liste et poids de chaque fichier),
         // quel que soit son nom, dans tous les projets présents sur les disques de destination.
         let sig = Self.signature(files)
-        if !force, let dup = Self.findPreviousCopy(signature: sig, destinations: destinations) {
-            return OffloadResult(ok: false, duplicate: true, message: dup, source: source)
+        if !force, let dup = Self.findPreviousCopy(signatures: [sig, Self.legacySignature(files, cardName)],
+                                                       destinations: destinations) {
+            return OffloadResult(ok: false, duplicate: true, message: dup.message, source: source)
         }
 
         // Espace libre, regroupé par disque physique
@@ -524,26 +528,43 @@ final class OffloadJob {
         return Self.hex(hasher.finalize())
     }
 
-    /// Cherche si cette carte a déjà été copiée (encore présente sur un disque).
-    /// Retourne le message à afficher, ou nil. Les copies mises à la corbeille sont oubliées.
-    static func findPreviousCopy(signature sig: String, destinations: [URL]) -> String? {
+    /// Copie déjà faite d'une carte : où, quand, sur quels disques.
+    struct PreviousCopy: Equatable {
+        let path: String      // « test / J1_2026-10-18 / CamA_FX3 / CamA_FX3_Carte01 »
+        let disks: [String]
+        let when: String      // « le 18/10 à 11:31 »
+        let size: String
+        var message: String {
+            let on = disks.count == 1 ? "sur le disque \(disks[0])" : "sur les disques \(disks.joined(separator: " et "))"
+            return "Cette carte\(size.isEmpty ? "" : " (\(size))") a déjà été copiée\(when.isEmpty ? "" : " \(when)") dans \(path), \(on)."
+        }
+        var short: String { "\(path) · \(disks.joined(separator: ", "))" }
+    }
+
+    /// Cherche si cette carte a déjà été copiée et si la copie est toujours sur un disque.
+    /// Les copies mises à la corbeille sont oubliées. Relit aussi l'ancien historique (_Rapports).
+    static func findPreviousCopy(signatures: [String], destinations: [URL]) -> PreviousCopy? {
         var disks: [String] = []
         var entry: [String: String]?
         for d in destinations {
             for proj in Naming.list(d) where !proj.hasPrefix(".") {
                 let pd = d.appendingPathComponent(proj)
                 guard Naming.isDir(pd) else { continue }
-                var hist = History.load(pd)
-                guard let e = hist[sig] else { continue }
-                if copyStillExists(projectDir: pd, display: e["dossier"] ?? "") {
-                    let disk = (try? d.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? d.lastPathComponent
-                    if !disks.contains(disk) { disks.append(disk) }
-                    var full = e
-                    full["projet"] = full["projet"] ?? proj
-                    entry = entry ?? full
-                } else {
-                    hist[sig] = nil
-                    History.save(pd, hist)
+                for dir in [Naming.reportDir, History.legacyDir] {
+                    var hist = History.load(pd, dir: dir)
+                    for sig in signatures {
+                        guard let e = hist[sig] else { continue }
+                        if copyStillExists(projectDir: pd, display: e["dossier"] ?? "") {
+                            let disk = (try? d.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? d.lastPathComponent
+                            if !disks.contains(disk) { disks.append(disk) }
+                            var full = e
+                            full["projet"] = full["projet"] ?? proj
+                            entry = entry ?? full
+                        } else {
+                            hist[sig] = nil
+                            History.save(pd, hist, dir: dir)
+                        }
+                    }
                 }
             }
         }
@@ -551,13 +572,25 @@ final class OffloadJob {
         var when = ""
         if let date = e["date"], date.count >= 16 {
             let p = date.prefix(10).split(separator: "-")
-            if p.count == 3 { when = " le \(p[2])/\(p[1]) à \(date.dropFirst(11).prefix(5))" }
+            if p.count == 3 { when = "le \(p[2])/\(p[1]) à \(date.dropFirst(11).prefix(5))" }
         }
         let path = ([e["projet"] ?? ""] + (e["dossier"] ?? "").split(separator: "/").map(String.init))
             .filter { !$0.isEmpty }.joined(separator: " / ")
-        let size = e["taille"].map { " (\($0))" } ?? ""
-        let on = disks.count == 1 ? "sur le disque \(disks[0])" : "sur les disques \(disks.joined(separator: " et "))"
-        return "Cette carte\(size) a déjà été copiée\(when) dans \(path), \(on)."
+        return PreviousCopy(path: path, disks: disks, when: when, size: e["taille"] ?? "")
+    }
+
+    /// Empreintes d'une carte branchée : actuelle (contenu seul) et ancienne (nom + contenu)
+    static func cardSignatures(_ root: URL) -> [String] {
+        guard let files = try? scan(root), !files.isEmpty else { return [] }
+        return [signature(files), legacySignature(files, root.lastPathComponent)]
+    }
+
+    /// Empreinte utilisée par les versions précédentes (nom de la carte + contenu)
+    static func legacySignature(_ files: [CardFile], _ cardName: String) -> String {
+        var h = Insecure.MD5()
+        h.update(data: Data(cardName.utf8))
+        for f in files { h.update(data: Data("\(f.rel)|\(f.size)\n".utf8)) }
+        return hex(h.finalize())
     }
 
     /// Une copie enregistrée dans l'historique est-elle toujours sur ce disque ?

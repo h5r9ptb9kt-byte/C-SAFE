@@ -27,6 +27,7 @@ struct CardVolume: Identifiable, Equatable {
     let detail: String
     let isCamera: Bool
     let ejectable: Bool
+    var previous: OffloadJob.PreviousCopy? = nil   // déjà copiée : où et sur quel disque
 }
 
 struct LogLine: Identifiable {
@@ -88,6 +89,7 @@ final class AppState: ObservableObject {
 
     private var camTypes: [String: String]
     private var pickedCards: [URL] = []
+    private var signatureCache: [String: [String]] = [:]   // carte (chemin + identifiant du volume) → empreintes
     private var copiedWhere: [String: String] = [:]   // carte → « Projet/J1_…/CamA_…/CamA_…_Carte01 »
     private var refreshTimer: Timer?
     private var autoWatch: Bool
@@ -156,6 +158,18 @@ final class AppState: ObservableObject {
 
     // MARK: - Cartes source (colonne de gauche)
 
+    /// Carte + « déjà copiée ? » (reconnue par son contenu, jamais par son nom ou son emplacement)
+    private func cardWithHistory(_ url: URL) -> CardVolume {
+        var c = Self.cardInfo(url)
+        let uuid = (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString) ?? ""
+        let key = url.path + "|" + uuid
+        if signatureCache[key] == nil { signatureCache[key] = OffloadJob.cardSignatures(url) }
+        if let sigs = signatureCache[key], !sigs.isEmpty {
+            c.previous = OffloadJob.findPreviousCopy(signatures: sigs, destinations: destinationURLs())
+        }
+        return c
+    }
+
     static func cardInfo(_ url: URL) -> CardVolume {
         let keys: Set<URLResourceKey> = [.volumeLocalizedNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
                                          .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeURLKey]
@@ -179,11 +193,13 @@ final class AppState: ObservableObject {
         let mounted = vols.filter { $0.path.hasPrefix("/Volumes/") && isCandidate($0) && OffloadJob.looksLikeCameraCard($0) }
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
         let extra = pickedCards.filter { p in !mounted.contains { $0.standardizedFileURL.path == p.standardizedFileURL.path } }
-        cards = (mounted.map(Self.cardInfo).sorted { ($0.isCamera ? 0 : 1, $0.name) < ($1.isCamera ? 0 : 1, $1.name) })
-            + extra.map(Self.cardInfo)
+        let mountedPaths = Set(vols.map { $0.path })
+        signatureCache = signatureCache.filter { mountedPaths.contains(String($0.key.split(separator: "|").first ?? "")) || pickedCards.contains(where: { p in $0.key.hasPrefix(p.path + "|") }) }
+        cards = (mounted.map(cardWithHistory).sorted { ($0.isCamera ? 0 : 1, $0.name) < ($1.isCamera ? 0 : 1, $1.name) })
+            + extra.map(cardWithHistory)
         #else
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
-        cards = pickedCards.map(Self.cardInfo)
+        cards = pickedCards.map(cardWithHistory)
         #endif
     }
 
@@ -192,9 +208,11 @@ final class AppState: ObservableObject {
     /// toutes les cartes source pas encore copiées, puis (sur Mac) chaque carte branchée ensuite.
     func startCopy() {
         guard checkReady() else { return }
+        let already = cards.filter { $0.previous != nil }
+        already.forEach { addLog("Déjà copiée, ignorée : « \($0.name) » → \($0.previous!.short)") }
         let pending = cards.filter {
             ($0.isCamera || pickedCards.contains($0.url))
-                && !copiedCards.contains($0.url.path)
+                && $0.previous == nil
                 && activeCard?.path != $0.url.path
         }
         #if os(macOS)

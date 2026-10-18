@@ -428,7 +428,7 @@ struct CardRow: View {
     let card: CardVolume
 
     private var isActive: Bool { state.activeCard?.path == card.url.path }
-    private var isCopied: Bool { state.copiedCards.contains(card.url.path) }
+    private var isCopied: Bool { card.previous != nil }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -444,7 +444,7 @@ struct CardRow: View {
                 Text(subtitle)
                     .font(.system(size: 10))
                     .foregroundStyle(isCopied ? Theme.green : Theme.muted)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             Spacer(minLength: 2)
             if isActive {
@@ -477,7 +477,7 @@ struct CardRow: View {
 
     private var subtitle: String {
         if isActive { return "Copie en cours…" }
-        if isCopied { return state.isMac ? "✓ Copiée et vérifiée — éjectable" : "✓ Copiée et vérifiée" }
+        if let p = card.previous { return "✓ Déjà copiée : \(p.short)" }
         if !card.isCamera { return "Pas une carte caméra" }
         return card.detail.isEmpty ? "Carte caméra" : card.detail
     }

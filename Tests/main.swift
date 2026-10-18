@@ -83,6 +83,10 @@ let dstDate = (try? fm.attributesOfItem(atPath: cardFolder.appendingPathComponen
 let dateGap = (srcDate != nil && dstDate != nil) ? abs(srcDate!.timeIntervalSince(dstDate!)) : 999
 check(dateGap < 1, String(format: "dossiers copiés avec leur date d'origine (écart %.6f s)", dateGap))
 
+let prev = OffloadJob.findPreviousCopy(signatures: OffloadJob.cardSignatures(card), destinations: [d1, d2])
+check(prev?.short.contains("CamA_FX3_Carte01") == true && prev?.disks.count == 2,
+      "carte branchée reconnue comme déjà copiée, avec l'endroit : \(prev?.short ?? "rien")")
+
 // 2. Même carte rebranchée → doublon signalé
 let r2 = run()
 check(r2.duplicate, "carte déjà copiée détectée")
