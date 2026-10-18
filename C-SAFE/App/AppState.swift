@@ -87,8 +87,11 @@ final class AppState: ObservableObject {
     @Published private(set) var watching = false
     /// Copies en cours, par carte (chemin)
     @Published private(set) var running: [String: RunningCopy] = [:]
-    /// Nombre de copies simultanées (1 = l'une après l'autre ; 2-3 conseillé sur SSD)
-    @Published var maxParallel: Int = 2 { didSet { save(); startNext() } }
+    /// Nombre de cartes copiées en même temps, choisi automatiquement d'après les disques :
+    /// tous SSD → 2 ; au moins un disque dur classique (ou inconnu) → 1.
+    @Published private(set) var maxParallel: Int = 1
+    @Published private(set) var parallelInfo = ""
+    private var ssdCache: [String: Bool?] = [:]
     var busy: Bool { !running.isEmpty }
     /// Avancement global (moyenne des copies en cours)
     var progress: Double { running.isEmpty ? (lastSuccess == true ? 1 : 0) : running.values.map(\.progress).reduce(0, +) / Double(running.count) }
@@ -174,7 +177,6 @@ final class AppState: ObservableObject {
         eject = s.eject
         autoWatch = s.autoWatch
         useShootDay = s.useShootDay
-        maxParallel = min(3, max(1, s.maxParallel))
         addLog("C-SAFE prêt. Ajoute au moins 2 disques de sauvegarde.")
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
@@ -402,7 +404,6 @@ final class AppState: ObservableObject {
         s.eject = eject
         s.autoWatch = watching
         s.useShootDay = useShootDay
-        s.maxParallel = maxParallel
         if let d = try? JSONEncoder().encode(s) { UserDefaults.standard.set(d, forKey: Self.settingsKey) }
     }
 
@@ -415,6 +416,7 @@ final class AppState: ObservableObject {
             copiedCards.remove(path)
             addLog("Copie supprimée détectée (\(where_)) : la carte peut être recopiée.")
         }
+        updateParallel()
         // Jour de tournage (J1, J2…) : automatique, toujours dans l'ordre des dates
         usedDays = Naming.usedShootDays(destinations: urls, project: project)
         let dayPlan = Naming.dayPlan(date: dateString, used: usedDays)
@@ -479,6 +481,46 @@ final class AppState: ObservableObject {
         _ = u.startAccessingSecurityScopedResource()
         resolved[d.id] = u
         return u
+    }
+
+    /// Disque SSD ? (macOS : information « SolidState » du disque ; nil si inconnu, ex. NAS)
+    private func isSSD(_ url: URL) -> Bool? {
+        let vol = (try? url.resourceValues(forKeys: [.volumeURLKey]).volume)?.path ?? url.path
+        if let cached = ssdCache[vol] { return cached }
+        var result: Bool? = nil
+        #if os(macOS)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+        p.arguments = ["info", "-plist", vol]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        if (try? p.run()) != nil {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            if let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+                result = dict["SolidState"] as? Bool
+            }
+        }
+        #else
+        result = true   // iPad / iPhone : disques USB-C généralement SSD
+        #endif
+        ssdCache[vol] = result
+        return result
+    }
+
+    /// Choisit tout seul combien de cartes copier en même temps
+    private func updateParallel() {
+        let reachable = destinations.filter { isReachable($0) }
+        guard !reachable.isEmpty else { maxParallel = 1; parallelInfo = ""; return }
+        let kinds = reachable.map { (name: $0.name, ssd: isSSD(url(for: $0))) }
+        let slow = kinds.filter { $0.ssd != true }.map(\.name)
+        let n = slow.isEmpty ? 2 : 1
+        let info = slow.isEmpty
+            ? "2 cartes en même temps (disques SSD)."
+            : "1 carte à la fois : \(slow.joined(separator: ", ")) " + (slow.count > 1 ? "sont des disques durs" : "est un disque dur") + " ou non reconnu, c'est le plus rapide."
+        if n != maxParallel { maxParallel = n; startNext() }
+        if info != parallelInfo { parallelInfo = info }
     }
 
     func isReachable(_ d: Destination) -> Bool {

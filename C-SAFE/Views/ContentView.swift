@@ -591,26 +591,13 @@ struct CopyPanel: View {
                     .lineLimit(1)
             }
 
-            HStack(spacing: 6) {
-                Text("Cartes copiées en même temps")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.cream)
-                Picker("", selection: $state.maxParallel) {
-                    Text("1").tag(1)
-                    Text("2").tag(2)
-                    Text("3").tag(3)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 96)
-                .controlSize(.small)
-                Spacer(minLength: 0)
+            if !state.parallelInfo.isEmpty {
+                Label(state.parallelInfo, systemImage: "square.stack.3d.down.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help("Choisi automatiquement d'après tes disques. Chaque carte est toujours copiée en entier sur tous les disques.")
             }
-            Text("Chaque carte est toujours copiée en entier sur tous tes disques. Disques SSD : 2 ou 3 · disques durs classiques : 1.")
-                .font(.system(size: 9))
-                .foregroundStyle(Theme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            .help("Nombre de cartes différentes copiées en parallèle. Chaque carte va en entier sur tous les disques de destination.")
 
             #if os(macOS)
             Button {
