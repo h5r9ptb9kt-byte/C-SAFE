@@ -15,11 +15,11 @@ struct CSafeApp: App {
             ContentView()
                 .environmentObject(state)
                 #if os(macOS)
-                .frame(minWidth: 560, minHeight: 640)
+                .frame(minWidth: 360, minHeight: 420)
                 #endif
         }
         #if os(macOS)
-        .defaultSize(width: 820, height: 940)
+        .defaultSize(width: 470, height: 720)
         #endif
     }
 }

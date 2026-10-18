@@ -44,6 +44,13 @@ jobs:
           name: journal-compilation
           path: build.log
 
+      - name: Tester le moteur de copie (2 Go, mémoire, vitesse, corbeille)
+        run: |
+          set -o pipefail
+          swiftc -O -swift-version 5 C-SAFE/Engine/Naming.swift C-SAFE/Engine/OffloadEngine.swift Tests/main.swift -o enginetest
+          ./enginetest 2>&1 | tee test.log
+          grep -E "^(TEST|MESURE|BILAN|RESULTAT)" test.log | while IFS= read -r l; do echo "::notice title=TEST::$l"; done
+
       - name: Signer (signature locale)
         run: |
           codesign --force --deep --sign - build/Release/C-SAFE.app

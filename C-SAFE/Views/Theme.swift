@@ -1,6 +1,7 @@
 //
 //  Theme.swift — C-SAFE
 //  Couleurs du logo C-FOCUS : bleu nuit, orange coucher de soleil, cyan, crème.
+//  Interface compacte : la fenêtre peut rester dans un coin du bureau.
 //
 
 import SwiftUI
@@ -27,32 +28,31 @@ enum Theme {
     static let cyan = Color(hex: 0x2A9FD6)
     static let green = Color(hex: 0x3CCB8F)
     static let red = Color(hex: 0xE5534B)
-
-    static let sunset = LinearGradient(colors: [orange, orangeDark], startPoint: .top, endPoint: .bottom)
 }
 
-/// Encadré de section (« carte » de l'interface)
+/// Encadré de section, compact
 struct Panel<Content: View>: View {
     let title: String
     let icon: String
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
                 Image(systemName: icon)
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Theme.orange)
                 Text(title.uppercased())
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .tracking(1.2)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(1)
                     .foregroundStyle(Theme.muted)
             }
             content
         }
-        .padding(16)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.panel))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
     }
 }
 
@@ -60,7 +60,7 @@ struct FieldLabel: View {
     let text: String
     var body: some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(Theme.muted)
     }
 }
@@ -69,22 +69,22 @@ extension View {
     /// Aspect « champ » commun aux saisies et menus
     func fieldLook() -> some View {
         self
-            .padding(.horizontal, 12)
-            .frame(minHeight: 40)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
+            .padding(.horizontal, 8)
+            .frame(minHeight: 28)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
     }
 }
 
-/// Gros bouton orange (action principale)
+/// Bouton principal
 struct PrimaryButtonStyle: ButtonStyle {
     var color: Color = Theme.orange
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .font(.system(size: 14, weight: .bold, design: .rounded))
             .foregroundStyle(Color(hex: 0x1A0F06))
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(color))
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color))
             .opacity(configuration.isPressed ? 0.8 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
@@ -94,12 +94,12 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundStyle(Theme.cream)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 40)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
+            .padding(.horizontal, 9)
+            .frame(minHeight: 26)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }

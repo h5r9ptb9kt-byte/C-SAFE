@@ -16,6 +16,7 @@ struct CardFile {
 struct OffloadResult {
     var ok: Bool
     var duplicate: Bool = false
+    var display: String = ""
     var message: String
     var name: String = ""
     var source: URL
@@ -85,6 +86,12 @@ enum History {
 final class OffloadJob {
 
     static let chunkSize = 8 * 1024 * 1024
+
+    /// Désactive le cache disque pour ce fichier : la mémoire du Mac n'est pas saturée,
+    /// et la vérification relit vraiment les données sur le disque (pas une copie en mémoire).
+    static func noCache(_ h: FileHandle) {
+        _ = fcntl(h.fileDescriptor, F_NOCACHE, 1)
+    }
 
     static let cameraMarkers: Set<String> = [
         "DCIM", "PRIVATE", "CLIP", "M4ROOT", "XDROOT", "CONTENTS", "AVCHD", "BPAV",
@@ -173,11 +180,16 @@ final class OffloadJob {
         let sig = Self.signature(files, cardName)
         if !force {
             for pd in projectDirs {
-                if let entry = History.load(pd)[sig] {
+                var hist = History.load(pd)
+                guard let entry = hist[sig] else { continue }
+                // La copie existe-t-elle encore ? Si elle a été mise à la corbeille, on l'oublie.
+                if Self.copyStillExists(projectDir: pd, display: entry["dossier"] ?? "") {
                     return OffloadResult(ok: false, duplicate: true,
                                          message: "Cette carte a déjà été déchargée : \(entry["dossier"] ?? "?")",
                                          source: source)
                 }
+                hist[sig] = nil
+                History.save(pd, hist)
             }
         }
 
@@ -230,21 +242,45 @@ final class OffloadJob {
                     outs.forEach { try? $0.close() }
                     throw OffloadError(message: "impossible d'écrire \(tmp.lastPathComponent) sur \(tmp.deletingLastPathComponent().path).")
                 }
-                outs.append(try FileHandle(forWritingTo: tmp))
+                let out = try FileHandle(forWritingTo: tmp)
+                Self.noCache(out)
+                outs.append(out)
             }
             let input = try FileHandle(forReadingFrom: f.url)
+            Self.noCache(input)
             var hasher = Insecure.MD5()
+            // Lecture et écritures en parallèle (double tampon) : pendant que le morceau N
+            // s'écrit sur tous les disques, le morceau N+1 est déjà lu sur la carte.
+            // Chaque morceau est libéré dès qu'il est écrit : mémoire stable (~16 Mo par copie).
+            let writes = DispatchGroup()
+            let writeError = ErrorBox()
             do {
                 while true {
                     try check()
-                    guard let chunk = try input.read(upToCount: Self.chunkSize), !chunk.isEmpty else { break }
+                    let chunk: Data? = try autoreleasepool {
+                        guard let c = try input.read(upToCount: Self.chunkSize), !c.isEmpty else { return nil }
+                        return c
+                    }
+                    writes.wait()                                  // le morceau précédent est écrit partout
+                    if let e = writeError.error { throw e }
+                    guard let chunk else { break }
                     hasher.update(data: chunk)
-                    try Self.writeAll(chunk, to: outs)
+                    for o in outs {
+                        writes.enter()
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            autoreleasepool {
+                                do { try o.write(contentsOf: chunk) } catch { writeError.set(error) }
+                            }
+                            writes.leave()
+                        }
+                    }
                     done += Int64(chunk.count)
                     progress("Copie", done, total, since: copyStart)
                 }
-                for o in outs { try o.synchronize() }
+                writes.wait()
+                if let e = writeError.error { throw e }
             } catch {
+                writes.wait()
                 try? input.close()
                 outs.forEach { try? $0.close() }
                 throw error
@@ -370,7 +406,7 @@ final class OffloadJob {
             return OffloadResult(ok: false, message: "\(shortName) : la vérification a échoué ! Ne formatez pas la carte.",
                                  name: shortName, source: source)
         }
-        return OffloadResult(ok: true,
+        return OffloadResult(ok: true, display: plan.display,
                              message: "\(shortName) : \(Self.human(total)) copiés et vérifiés sur \(plan.targets.count) disque(s) en \(Int(elapsed) / 60) min \(Int(elapsed) % 60) s.",
                              name: shortName, source: source)
     }
@@ -453,27 +489,28 @@ final class OffloadJob {
 
     private func md5(of url: URL, onChunk: (Int) -> Void) throws -> String {
         let h = try FileHandle(forReadingFrom: url)
+        Self.noCache(h)
         defer { try? h.close() }
         var hasher = Insecure.MD5()
         while true {
             if cancel.isSet { throw OffloadCancelled() }
-            guard let chunk = try h.read(upToCount: Self.chunkSize), !chunk.isEmpty else { break }
-            hasher.update(data: chunk)
-            onChunk(chunk.count)
+            let more: Bool = try autoreleasepool {
+                guard let chunk = try h.read(upToCount: Self.chunkSize), !chunk.isEmpty else { return false }
+                hasher.update(data: chunk)
+                onChunk(chunk.count)
+                return true
+            }
+            if !more { break }
         }
         return Self.hex(hasher.finalize())
     }
 
-    private static func writeAll(_ data: Data, to outs: [FileHandle]) throws {
-        if outs.count == 1 {
-            try outs[0].write(contentsOf: data)
-            return
-        }
-        let box = ErrorBox()
-        DispatchQueue.concurrentPerform(iterations: outs.count) { i in
-            do { try outs[i].write(contentsOf: data) } catch { box.set(error) }
-        }
-        if let e = box.error { throw e }
+    /// Une copie enregistrée dans l'historique est-elle toujours sur ce disque ?
+    static func copyStillExists(projectDir: URL, display: String) -> Bool {
+        guard !display.isEmpty else { return false }
+        let url = projectDir.appendingPathComponent(display)
+        if display.hasSuffix("/SON") { return Naming.sonOccupied(url) }
+        return Naming.isDir(url) && !Naming.list(url).filter { !$0.hasPrefix(".") }.isEmpty
     }
 
     static func scan(_ root: URL) throws -> [CardFile] {

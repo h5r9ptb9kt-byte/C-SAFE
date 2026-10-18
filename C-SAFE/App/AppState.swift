@@ -84,6 +84,8 @@ final class AppState: ObservableObject {
 
     private var camTypes: [String: String]
     private var pickedCards: [URL] = []
+    private var copiedWhere: [String: String] = [:]   // carte → « Projet/J1_…/CamA_…/CamA_…_Carte01 »
+    private var refreshTimer: Timer?
     private var autoWatch: Bool
     private var queue: [(url: URL, force: Bool, scoped: Bool)] = []
     private var job: OffloadJob?
@@ -113,10 +115,16 @@ final class AppState: ObservableObject {
         useShootDay = s.useShootDay
         addLog("C-SAFE prêt. Ajoute au moins 2 disques de sauvegarde.")
         refresh()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.busy else { return }
+                self.refresh()
+                self.refreshCards()
+            }
+        }
         #if os(macOS)
         observeVolumes()
         refreshCards()
-        if autoWatch { startWatching() }
         #endif
     }
 
@@ -140,8 +148,11 @@ final class AppState: ObservableObject {
     func refreshCards() {
         #if os(macOS)
         let vols = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? []
-        cards = vols.filter { $0.path.hasPrefix("/Volumes/") && isCandidate($0) }.map(Self.cardInfo)
-            .sorted { ($0.isCamera ? 0 : 1, $0.name) < ($1.isCamera ? 0 : 1, $1.name) }
+        let mounted = vols.filter { $0.path.hasPrefix("/Volumes/") && isCandidate($0) }
+        pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
+        let extra = pickedCards.filter { p in !mounted.contains { $0.standardizedFileURL.path == p.standardizedFileURL.path } }
+        cards = (mounted.map(Self.cardInfo).sorted { ($0.isCamera ? 0 : 1, $0.name) < ($1.isCamera ? 0 : 1, $1.name) })
+            + extra.map(Self.cardInfo)
         #else
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
         cards = pickedCards.map(Self.cardInfo)
@@ -149,8 +160,33 @@ final class AppState: ObservableObject {
     }
 
     /// Copie manuelle d'une carte de la colonne source
-    func copyCard(_ card: CardVolume) {
-        enqueue(card.url)
+    /// Seul le bouton « Démarrer la copie » lance les copies :
+    /// toutes les cartes source pas encore copiées, puis (sur Mac) chaque carte branchée ensuite.
+    func startCopy() {
+        guard checkReady() else { return }
+        let pending = cards.filter {
+            ($0.isCamera || pickedCards.contains($0.url))
+                && !copiedCards.contains($0.url.path)
+                && activeCard?.path != $0.url.path
+        }
+        #if os(macOS)
+        watching = true
+        addLog(pending.isEmpty ? "Copie démarrée : branche une carte, elle sera copiée toute seule."
+                               : "Copie démarrée : \(pending.count) carte(s) en cours, les suivantes seront copiées dès leur branchement.")
+        if destinations.count < 2 { addLog("⚠ Un seul disque de sauvegarde : 2 sont recommandés.") }
+        #else
+        if pending.isEmpty { addLog("Choisis d'abord une carte.") }
+        #endif
+        pending.forEach { enqueue($0.url) }
+        save()
+    }
+
+    func stopCopy() {
+        #if os(macOS)
+        watching = false
+        addLog("Copie automatique arrêtée : les nouvelles cartes ne seront plus copiées.")
+        #endif
+        save()
     }
 
     /// iPad / iPhone : carte choisie dans Fichiers
@@ -159,7 +195,7 @@ final class AppState: ObservableObject {
         _ = url.startAccessingSecurityScopedResource()
         if !pickedCards.contains(url) { pickedCards.append(url) }
         refreshCards()
-        enqueue(url)
+        addLog("Carte ajoutée : « \(url.lastPathComponent) ». Clique « Démarrer la copie ».")
     }
 
     /// iPad / iPhone : retirer la carte de la colonne (avant de la débrancher)
@@ -222,6 +258,12 @@ final class AppState: ObservableObject {
     /// Recalcule les sources déjà faites et l'aperçu du prochain dossier.
     func refresh() {
         let urls = destinationURLs()
+        // Copie mise à la corbeille depuis le Finder ? La carte redevient « à copier ».
+        for (path, where_) in copiedWhere where !urls.contains(where: { OffloadJob.copyStillExists(projectDir: $0, display: where_) }) {
+            copiedWhere[path] = nil
+            copiedCards.remove(path)
+            addLog("Copie supprimée détectée (\(where_)) : la carte peut être recopiée.")
+        }
         // Jour de tournage (J1, J2…) : reprend celui de la date s'il existe déjà, sinon le prochain libre
         usedDays = Naming.usedShootDays(destinations: urls, project: project)
         if useShootDay {
@@ -421,7 +463,10 @@ final class AppState: ObservableObject {
         busy = false
         job = nil
         activeCard = nil
-        if r.ok { copiedCards.insert(r.source.path) }
+        if r.ok {
+            copiedCards.insert(r.source.path)
+            copiedWhere[r.source.path] = "\(Naming.sanitize(project))/\(r.display)"
+        }
         if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = false
@@ -482,46 +527,6 @@ final class AppState: ObservableObject {
     // MARK: - Mac : détection automatique des cartes
 
     #if os(macOS)
-    func toggleWatching() {
-        watching ? stopWatching() : startWatching()
-    }
-
-    /// Suit les branchements / débranchements pour tenir la colonne source à jour.
-    private func observeVolumes() {
-        let nc = NSWorkspace.shared.notificationCenter
-        let mounted = nc.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] note in
-            guard let url = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
-            MainActor.assumeIsolated { self?.volumeMounted(url) }
-        }
-        let unmounted = nc.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refreshCards()
-                self?.refresh()
-            }
-        }
-        volumeObservers = [mounted, unmounted]
-    }
-
-    func startWatching() {
-        guard checkReady() else { return }
-        watching = true
-        addLog("Surveillance démarrée : branche une carte.")
-        if destinations.count < 2 { addLog("⚠ Un seul disque de sauvegarde : 2 sont recommandés.") }
-        alreadyMounted = mountedCards()
-        save()
-    }
-
-    func stopWatching() {
-        watching = false
-        addLog("Surveillance arrêtée.")
-        save()
-    }
-
-    func offloadAlreadyMounted() {
-        alreadyMounted.forEach { enqueue($0) }
-        alreadyMounted = []
-    }
-
     private func isCandidate(_ volume: URL) -> Bool {
         let p = volume.standardizedFileURL.path
         if p == "/" { return false }
