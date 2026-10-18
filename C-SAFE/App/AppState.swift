@@ -251,8 +251,9 @@ final class AppState: ObservableObject {
     /// Attribue une source à chaque nouvelle carte : la carte son reçoit SON, les autres la
     /// première caméra libre (pas encore copiée ce jour, pas déjà attribuée à une autre carte).
     private func autoAssign() {
-        let present = Set(cards.map(\.key))
-        assignments = assignments.filter { present.contains($0.key) }
+        // Une carte déjà copiée (et pas en cours de copie) libère sa source pour les autres cartes
+        let holding = Set(cards.filter { $0.previous == nil || running[$0.url.path] != nil }.map(\.key))
+        assignments = assignments.filter { holding.contains($0.key) }
         for c in cards where assignments[c.key] == nil && c.previous == nil {
             let taken = Set(assignments.values)
             let free = sources.filter { !done.contains($0) && !taken.contains($0) }
@@ -286,17 +287,24 @@ final class AppState: ObservableObject {
     }
 
     /// Sources proposées pour une carte : toutes sauf celles attribuées à une autre carte
+    /// Toutes les sources restent proposées (deux cartes de la même caméra sont possibles) ;
+    /// celles déjà copiées ce jour sont rangées dans « carte suivante ».
     func sourceChoices(for card: CardVolume) -> (fresh: [String], doneToday: [String]) {
-        let others = Set(assignments.filter { $0.key != card.key }.values)
-        let usable = sources.filter { !others.contains($0) }
-        return (usable.filter { !done.contains($0) }, usable.filter { done.contains($0) })
+        (sources.filter { !done.contains($0) }, sources.filter { done.contains($0) })
     }
 
     /// Dossier qui sera créé pour cette carte (« CamA_FX3_Carte02 », « SON », « HF2 »…)
     func previewFor(_ card: CardVolume) -> String {
         guard let s = assignments[card.key] else { return "" }
-        let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: labelFor(source: s))
-        return String(plan.display.split(separator: "/").last ?? "")
+        let label = labelFor(source: s)
+        let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: label)
+        let name = String(plan.display.split(separator: "/").last ?? "")
+        // Autres cartes de la même source, placées avant celle-ci et pas encore copiées : numéros suivants
+        let before = cards.prefix { $0.key != card.key }
+            .filter { $0.previous == nil && running[$0.url.path] == nil && assignments[$0.key] == s }.count
+        guard before > 0, let range = name.range(of: #"_Carte([0-9]+)$"#, options: .regularExpression),
+              let n = Int(name[range].dropFirst("_Carte".count)) else { return name }
+        return String(name[..<range.lowerBound]) + String(format: "_Carte%02d", n + before)
     }
 
     /// Copie manuelle d'une carte de la colonne source
