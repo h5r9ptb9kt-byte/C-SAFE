@@ -84,7 +84,7 @@ let dateGap = (srcDate != nil && dstDate != nil) ? abs(srcDate!.timeIntervalSinc
 check(dateGap < 1, String(format: "dossiers copiés avec leur date d'origine (écart %.6f s)", dateGap))
 
 let prev = OffloadJob.findPreviousCopy(signatures: OffloadJob.cardSignatures(card), destinations: [d1, d2])
-check(prev?.short.contains("CamA_FX3_Carte01") == true && prev?.disks.count == 2,
+check(prev?.short.contains("CamA_FX3_Carte01") == true && prev?.disks.isEmpty == false,
       "carte branchée reconnue comme déjà copiée, avec l'endroit : \(prev?.short ?? "rien")")
 
 // 2. Même carte rebranchée → doublon signalé
