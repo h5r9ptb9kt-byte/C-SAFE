@@ -27,6 +27,7 @@ jobs:
           xcodebuild -project C-SAFE.xcodeproj -target C-SAFE -configuration Release -sdk macosx \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             SYMROOT="$PWD/build" build 2>&1 | tee build.log
           test -x build/Release/C-SAFE.app/Contents/MacOS/C-SAFE
 
@@ -58,8 +59,9 @@ jobs:
 
       - name: Signer (signature locale)
         run: |
-          codesign --force --deep --sign - build/Release/C-SAFE.app
-          codesign --verify --verbose build/Release/C-SAFE.app
+          xattr -cr build/Release/C-SAFE.app
+          codesign --force --deep --sign - --timestamp=none build/Release/C-SAFE.app
+          codesign --verify --deep --strict --verbose=2 build/Release/C-SAFE.app
 
       - name: Diagnostic du paquet (lisible dans les annotations)
         if: always()
@@ -75,9 +77,22 @@ jobs:
       - name: Créer le fichier C-SAFE.dmg
         run: |
           mkdir dmg
-          cp -R build/Release/C-SAFE.app dmg/
+          ditto build/Release/C-SAFE.app dmg/C-SAFE.app
           ln -s /Applications dmg/Applications
+          cp "Distribution/Installer C-SAFE.pdf" "dmg/Installer C-SAFE (à lire).pdf"
           hdiutil create -volname "C-SAFE" -srcfolder dmg -ov -format UDZO C-SAFE.dmg
+
+      - name: Contrôler le .dmg (intégrité + signature de l'app à l'intérieur)
+        run: |
+          hdiutil verify C-SAFE.dmg
+          MNT=$(hdiutil attach -nobrowse -readonly C-SAFE.dmg | tail -1 | cut -f3-)
+          codesign --verify --deep --strict --verbose=2 "$MNT/C-SAFE.app"
+          test -x "$MNT/C-SAFE.app/Contents/MacOS/C-SAFE"
+          ls -la "$MNT"
+          hdiutil detach "$MNT"
+          SHA=$(shasum -a 256 C-SAFE.dmg | cut -d' ' -f1)
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          echo "::notice title=SHA-256::$SHA"
 
       - name: Garder le .dmg
         uses: actions/upload-artifact@v4
@@ -96,5 +111,9 @@ jobs:
             Installation : ouvrir C-SAFE.dmg, glisser C-SAFE dans Applications.
             Premier lancement : si macOS bloque l'ouverture, aller dans
             Réglages Système > Confidentialité et sécurité > « Ouvrir quand même ».
+            Guide illustré : « Installer C-SAFE (à lire).pdf » dans le .dmg.
+
+            Empreinte SHA-256 du fichier C-SAFE.dmg (pour vérifier qu'il n'a pas été modifié) :
+            ${{ env.SHA }}
           files: C-SAFE.dmg
           make_latest: true

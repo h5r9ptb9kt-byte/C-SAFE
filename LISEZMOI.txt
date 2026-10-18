@@ -37,37 +37,13 @@ et sélectionne-la dans Fichiers. Garde l'app ouverte pendant la copie.
 Les disques doivent être en exFAT ou APFS pour être lisibles sur iPad/iPhone.
 
 
-INSTALLATION — une seule fois (environ 15 minutes)
--------------------------------------------------
-1. Sur ton Mac, installe Xcode depuis l'App Store (gratuit).
-2. Ouvre Xcode > Réglages (Settings) > Comptes (Accounts) > « + » > Apple ID,
-   et connecte ton identifiant Apple.
-3. Décompresse C-SAFE.zip et double-clique sur « C-SAFE.xcodeproj ».
-4. Dans la colonne de gauche, clique sur « C-SAFE » (l'icône bleue tout en haut),
-   puis sur la cible « C-SAFE » > onglet « Signing & Capabilities » :
-   - Team : choisis ton nom (Personal Team).
-   - Si Xcode dit que l'identifiant est déjà pris, remplace « fr.cfocus.csafe »
-     par par exemple « fr.cfocus.csafe.etienne ».
-
-SUR LE MAC
-5. En haut de la fenêtre Xcode, choisis « My Mac » comme destination.
-6. Menu Product > Archive. Quand c'est fini : Distribute App > Custom >
-   Copy App > enregistre C-SAFE.app et glisse-la dans ton dossier Applications.
-   (Pour un simple essai : bouton ▶ Run.)
-7. Au premier branchement de carte, macOS demande l'accès aux « volumes
-   amovibles » : réponds Autoriser.
-
-SUR L'iPHONE OU L'iPAD
-8. Branche l'appareil au Mac avec un câble et déverrouille-le.
-9. Sur l'appareil : Réglages > Confidentialité et sécurité > Mode développeur > Activer
-   (l'appareil redémarre).
-10. Dans Xcode, choisis ton iPhone / iPad comme destination et clique ▶ Run.
-11. La première fois : Réglages > Général > VPN et gestion de l'appareil >
-    ton identifiant Apple > Faire confiance.
-
-Bon à savoir : avec un identifiant Apple gratuit, l'app installée sur iPhone/iPad
-doit être réinstallée (étape 10) tous les 7 jours. Avec un compte Apple Developer
-(99 € par an), elle reste installée un an. Sur Mac, aucune limite.
+INSTALLATION SUR MAC (2 minutes, une seule fois)
+------------------------------------------------
+Guide illustré : « Installer C-SAFE (à lire).pdf » (dans le .dmg).
+1. Ouvre C-SAFE.dmg et glisse C-SAFE sur le dossier Applications.
+2. Lance C-SAFE depuis Applications : macOS la bloque -> clique « Terminé ».
+3. Réglages Système > Confidentialité et sécurité > « Ouvrir quand même »,
+   puis encore « Ouvrir quand même » et ton mot de passe / Touch ID.
+4. Au premier branchement de carte : « Autoriser » l'accès aux volumes amovibles.
 
 Les réglages (projet, disques, listes de sources et de types) sont mémorisés.
-Version sans Xcode pour Windows ou en dépannage : RushBackup (Python), déjà fourni.
