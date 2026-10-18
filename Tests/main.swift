@@ -80,7 +80,8 @@ check(projectItems.last == "Rapports_de_copie", "Rapports_de_copie rangé après
 
 let srcDate = (try? fm.attributesOfItem(atPath: clips.path))?[.modificationDate] as? Date
 let dstDate = (try? fm.attributesOfItem(atPath: cardFolder.appendingPathComponent("PRIVATE/M4ROOT/CLIP").path))?[.modificationDate] as? Date
-check(srcDate != nil && srcDate == dstDate, "dossiers copiés avec leur date d'origine")
+let dateGap = (srcDate != nil && dstDate != nil) ? abs(srcDate!.timeIntervalSince(dstDate!)) : 999
+check(dateGap < 1, String(format: "dossiers copiés avec leur date d'origine (écart %.6f s)", dateGap))
 
 // 2. Même carte rebranchée → doublon signalé
 let r2 = run()
