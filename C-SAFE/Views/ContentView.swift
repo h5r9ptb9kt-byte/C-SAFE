@@ -7,11 +7,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum ImportTarget { case destination, card }
-enum NameRequest: Identifiable {
-    case source, type
-    var id: Int { self == .source ? 0 : 1 }
-    var title: String { self == .source ? "Nouvelle source" : "Nouveau type de caméra" }
-    var hint: String { self == .source ? "Ex. Drone, GoPro-Casque, Plateau" : "Ex. FX6, Mavic 3, Alexa" }
+/// Ajout d'un nom personnalisé : une source pour une carte, ou un type pour une source
+struct NameRequest: Identifiable {
+    enum Kind { case source, type }
+    let kind: Kind
+    var card: CardVolume? = nil   // carte à laquelle attribuer la nouvelle source
+    var source: String = ""       // source à laquelle attribuer le nouveau type
+    var id: String { "\(kind)-\(card?.key ?? "")-\(source)" }
+    var title: String { kind == .source ? "Nouvelle source" : "Nouveau type de caméra" }
+    var hint: String { kind == .source ? "Ex. Drone, GoPro-Casque, Plateau" : "Ex. FX6, Mavic 3, Alexa" }
 }
 
 struct ContentView: View {
@@ -67,7 +71,6 @@ struct ContentView: View {
         )
         .onChange(of: state.project) { state.refresh() }
         .onChange(of: state.shootDate) { state.refresh() }
-        .onChange(of: state.extraCard) { state.refresh() }
     }
 
     private var panels: some View {
@@ -85,14 +88,17 @@ struct ContentView: View {
                         .alert(nameRequest?.title ?? "", isPresented: Binding(get: { nameRequest != nil }, set: { if !$0 { nameRequest = nil } })) {
                         TextField(nameRequest?.hint ?? "", text: $newName)
                         Button("Ajouter") {
-                        if nameRequest == .source { state.addSource(newName) } else { state.addType(newName) }
+                        if let r = nameRequest {
+                        if r.kind == .source { state.addSource(newName, for: r.card) } else { state.addType(newName, for: r.source) }
+                        }
                         nameRequest = nil
                         }
                         Button("Annuler", role: .cancel) { nameRequest = nil }
                         } message: {
                         Text("Il restera dans la liste pour les prochaines fois.")
                         }
-                    TransferPanel(onPickCard: { open(.card) }, onAddDestination: { open(.destination) })
+                    TransferPanel(onPickCard: { open(.card) }, onAddDestination: { open(.destination) },
+                                  askName: { nameRequest = $0; newName = "" })
                     CopyPanel(onPickCard: { open(.card) })
                     LogPanel()
                 }
@@ -175,28 +181,6 @@ struct ShootPanel: View {
                     .fieldLook()
             }
             HStack(spacing: 6) {
-                FieldLabel(text: "Source").frame(width: 44, alignment: .leading)
-                ChoiceMenu(value: state.extraCard ? "\(state.source) · carte suiv." : state.source,
-                           items: state.availableSources,
-                           removable: !Naming.defaultSources.contains(state.source),
-                           onSelect: { state.extraCard = false; state.selectSource($0) },
-                           onOther: { askName(.source) },
-                           onRemove: { state.removeSource($0) },
-                           extraTitle: "Déjà copiées — carte suivante",
-                           extraItems: state.done,
-                           extraLabel: { state.nextCardLabel(for: $0) },
-                           onSelectExtra: { state.selectNextCard(of: $0) })
-                ChoiceMenu(value: state.isSoundSource ? "—" : state.type,
-                           items: state.types,
-                           removable: true,
-                           onSelect: { state.selectType($0) },
-                           onOther: { askName(.type) },
-                           onRemove: { state.removeType($0) })
-                    .disabled(state.isSoundSource)
-                    .opacity(state.isSoundSource ? 0.45 : 1)
-                    .help("Type de caméra")
-            }
-            HStack(spacing: 6) {
                 FieldLabel(text: "Date").frame(width: 44, alignment: .leading)
                 DatePicker("", selection: $state.shootDate, in: ...Date(), displayedComponents: .date)
                     .labelsHidden()
@@ -233,17 +217,6 @@ struct ShootPanel: View {
                 }
             }
 
-            HStack(alignment: .top, spacing: 5) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 10))
-                Text(state.nextPreview)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-            .foregroundStyle(Theme.cyan)
-            .padding(6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.cyan.opacity(0.10)))
         }
     }
 }
@@ -360,18 +333,19 @@ struct TransferPanel: View {
     @EnvironmentObject var state: AppState
     let onPickCard: () -> Void
     let onAddDestination: () -> Void
+    let askName: (NameRequest) -> Void
 
     var body: some View {
         Panel(title: "Source → Destinations", icon: "arrow.left.arrow.right") {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 6) {
-                    SourceColumn(onPickCard: onPickCard).frame(maxWidth: .infinity)
+                    SourceColumn(onPickCard: onPickCard, askName: askName).frame(maxWidth: .infinity)
                     flowArrow("arrow.right").padding(.top, 22)
                     DestinationsColumn(onAdd: onAddDestination).frame(maxWidth: .infinity)
                 }
                 .frame(minWidth: 400)
                 VStack(spacing: 6) {
-                    SourceColumn(onPickCard: onPickCard)
+                    SourceColumn(onPickCard: onPickCard, askName: askName)
                     flowArrow("arrow.down")
                     DestinationsColumn(onAdd: onAddDestination)
                 }
@@ -401,6 +375,7 @@ struct ColumnTitle: View {
 struct SourceColumn: View {
     @EnvironmentObject var state: AppState
     let onPickCard: () -> Void
+    let askName: (NameRequest) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -414,7 +389,7 @@ struct SourceColumn: View {
                     .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.stroke, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
             ForEach(state.cards) { card in
-                CardRow(card: card)
+                CardRow(card: card, askName: askName)
             }
             Button(action: onPickCard) { Label("Choisir une carte…", systemImage: "folder") }
                 .buttonStyle(SecondaryButtonStyle())
@@ -426,57 +401,107 @@ struct SourceColumn: View {
 struct CardRow: View {
     @EnvironmentObject var state: AppState
     let card: CardVolume
+    let askName: (NameRequest) -> Void
 
-    private var isActive: Bool { state.activeCard?.path == card.url.path }
+    private var run: RunningCopy? { state.runningCopy(for: card) }
     private var isCopied: Bool { card.previous != nil }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "sdcard.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(isCopied ? Theme.green : (card.isCamera ? Theme.orange : Theme.muted))
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(card.name)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.cream)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(isCopied ? Theme.green : Theme.muted)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 2)
-            if isActive {
-                Text("\(Int(state.progress * 100)) %")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Theme.orange)
-            } else {
-                #if os(macOS)
-                if card.ejectable {
-                    Button { state.ejectCard(card) } label: {
-                        Image(systemName: "eject.fill").font(.system(size: 11))
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "sdcard.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(isCopied ? Theme.green : (card.isCamera ? Theme.orange : Theme.muted))
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(card.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.cream)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(isCopied ? Theme.green : Theme.muted)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 2)
+                if let run {
+                    Text("\(Int(run.progress * 100)) %")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Theme.orange)
+                    Button { state.cancelCopy(of: card) } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Theme.cream)
-                    .help("Éjecter la carte")
+                    .foregroundStyle(Theme.muted)
+                    .help("Annuler la copie de cette carte")
+                } else {
+                    #if os(macOS)
+                    if card.ejectable {
+                        Button { state.ejectCard(card) } label: {
+                            Image(systemName: "eject.fill").font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.cream)
+                        .help("Éjecter la carte")
+                    }
+                    #else
+                    Button { state.forgetCard(card) } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 13))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.muted)
+                    #endif
                 }
-                #else
-                Button { state.forgetCard(card) } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 13))
+            }
+
+            if let run {
+                ProgressView(value: run.progress)
+                    .progressViewStyle(.linear)
+                    .tint(Theme.orange)
+                Text("\(run.label) · \(run.text)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            } else if !isCopied {
+                let source = state.sourceFor(card)
+                let choices = state.sourceChoices(for: card)
+                HStack(spacing: 5) {
+                    ChoiceMenu(value: source,
+                               items: choices.fresh,
+                               removable: !Naming.defaultSources.contains(source),
+                               onSelect: { state.assign($0, to: card) },
+                               onOther: { askName(NameRequest(kind: .source, card: card)) },
+                               onRemove: { state.removeSource($0) },
+                               extraTitle: "Déjà copiées ce jour — carte suivante",
+                               extraItems: choices.doneToday,
+                               extraLabel: { "\($0) (carte suivante)" },
+                               onSelectExtra: { state.assign($0, to: card) })
+                    let isSound = Naming.isSound(Naming.label(source: source))
+                    ChoiceMenu(value: isSound ? "—" : state.typeFor(source: source),
+                               items: state.types,
+                               removable: true,
+                               onSelect: { state.setType($0, for: source) },
+                               onOther: { askName(NameRequest(kind: .type, source: source)) },
+                               onRemove: { state.removeType($0) })
+                        .disabled(isSound || source == "—")
+                        .opacity(isSound ? 0.45 : 1)
+                        .help("Type de caméra")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.muted)
-                #endif
+                if !state.previewFor(card).isEmpty {
+                    Label(state.previewFor(card), systemImage: "folder.fill")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.cyan)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(6)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isActive ? Theme.orange : (isCopied ? Theme.green : Color.clear), lineWidth: 1.2))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(run != nil ? Theme.orange : (isCopied ? Theme.green : Color.clear), lineWidth: 1.2))
     }
 
     private var subtitle: String {
-        if isActive { return "Copie en cours…" }
+        if run != nil { return "Copie en cours…" }
         if let p = card.previous { return "✓ Déjà copiée : \(p.short)" }
         if !card.isCamera { return "Pas une carte caméra" }
         return card.detail.isEmpty ? "Carte caméra" : card.detail
@@ -557,14 +582,34 @@ struct CopyPanel: View {
                     .lineLimit(2)
             }
             if state.busy || state.lastSuccess != nil {
-                ProgressView(value: state.progress)
+                ProgressView(value: min(1, max(0, state.progress)))
                     .progressViewStyle(.linear)
                     .tint(state.lastSuccess == true ? Theme.green : (state.lastSuccess == false ? Theme.red : Theme.orange))
-                Text(state.progressText)
+                Text(state.busy ? "\(state.running.count) copie(s) en cours — détail sur chaque carte" : state.progressText)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
             }
+
+            HStack(spacing: 6) {
+                Text("Copies simultanées")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.cream)
+                Picker("", selection: $state.maxParallel) {
+                    Text("1").tag(1)
+                    Text("2").tag(2)
+                    Text("3").tag(3)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 96)
+                .controlSize(.small)
+                Text("SSD : 2-3 · disque dur : 1")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.muted)
+                Spacer(minLength: 0)
+            }
+            .help("Nombre de cartes copiées en même temps vers les mêmes disques. Sur des disques durs classiques, 1 est souvent plus rapide.")
 
             #if os(macOS)
             Button {
@@ -580,7 +625,7 @@ struct CopyPanel: View {
                 .foregroundStyle(Theme.muted)
             HStack(spacing: 8) {
                 if state.busy {
-                    Button(role: .destructive) { state.cancelCopy() } label: { Label("Annuler", systemImage: "xmark.circle") }
+                    Button(role: .destructive) { state.cancelCopy() } label: { Label(state.running.count > 1 ? "Tout annuler" : "Annuler", systemImage: "xmark.circle") }
                         .buttonStyle(SecondaryButtonStyle())
                 }
                 Spacer()
@@ -598,7 +643,7 @@ struct CopyPanel: View {
             .buttonStyle(PrimaryButtonStyle())
             .disabled(state.busy || state.cards.isEmpty)
             if state.busy {
-                Button(role: .destructive) { state.cancelCopy() } label: { Label("Annuler", systemImage: "xmark.circle") }
+                Button(role: .destructive) { state.cancelCopy() } label: { Label(state.running.count > 1 ? "Tout annuler" : "Annuler", systemImage: "xmark.circle") }
                     .buttonStyle(SecondaryButtonStyle())
             }
             Text("Branche le lecteur et les disques (hub USB-C), choisis la carte, puis « Démarrer la copie ». Garde l'app ouverte.")

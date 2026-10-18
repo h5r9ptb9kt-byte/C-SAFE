@@ -113,6 +113,36 @@ check(done.isEmpty, "CamA redevient disponible après suppression")
 let r3 = run()
 check(r3.ok && !r3.duplicate && r3.display.hasSuffix("CamA_FX3_Carte01"), "recopie possible après suppression (\(r3.display))")
 
+// 5. Deux copies simultanées vers les mêmes disques
+func makeCard(_ name: String, mb: Int) -> URL {
+    let c = base.appendingPathComponent(name)
+    let dir = c.appendingPathComponent("DCIM/100GOPRO")
+    try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    makeFile(dir.appendingPathComponent("GX010001.MP4"), mb: mb)
+    return c
+}
+let cardB = makeCard("GOPRO_B", mb: 600)
+let cardC = makeCard("GOPRO_C", mb: 500)
+var rB: OffloadResult?, rC: OffloadResult?
+let group = DispatchGroup()
+let tPar = Date()
+for (c, lab) in [(cardB, "CamB_GoPro"), (cardC, "CamC_GoPro")] {
+    group.enter()
+    DispatchQueue.global().async {
+        OffloadJob(source: c, destinations: [d1, d2], project: "Tournage été", label: lab, day: "J1_2026-10-18", force: false) { ev in
+            if case .finished(let r) = ev { if lab == "CamB_GoPro" { rB = r } else { rC = r } }
+        }.run()
+        group.leave()
+    }
+}
+group.wait()
+print(String(format: "MESURE 2 copies simultanées (1,1 Go) : %.1f s · mémoire max %.0f Mo", Date().timeIntervalSince(tPar), maxRSSMB()))
+check(rB?.ok == true && rC?.ok == true, "2 copies simultanées réussies sur le même disque (\(rB?.display ?? "?") + \(rC?.display ?? "?"))")
+let histAll = History.load(d1.appendingPathComponent("Tournage-ete"))
+let sigB = OffloadJob.signature(try! OffloadJob.scan(cardB)), sigC = OffloadJob.signature(try! OffloadJob.scan(cardC))
+check(histAll[sigB] != nil && histAll[sigC] != nil, "historique complet après copies simultanées")
+check(maxRSSMB() < 400, String(format: "mémoire stable avec 2 copies simultanées (%.0f Mo)", maxRSSMB()))
+
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")
 let pj = dz.appendingPathComponent("Film")

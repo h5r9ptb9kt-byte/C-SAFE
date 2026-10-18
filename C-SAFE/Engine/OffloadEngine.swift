@@ -80,6 +80,17 @@ enum History {
         return t
     }
 
+    /// Verrou commun : plusieurs copies simultanées ne s'écrasent jamais l'historique
+    private static let lock = NSLock()
+
+    /// Lecture-modification-écriture protégée (copies simultanées)
+    static func update(_ projectDir: URL, dir: String = Naming.reportDir, _ change: (inout Table) -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        var t = load(projectDir, dir: dir)
+        change(&t)
+        save(projectDir, t, dir: dir)
+    }
+
     static func save(_ projectDir: URL, _ t: Table, dir: String = Naming.reportDir) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -412,10 +423,9 @@ final class OffloadJob {
                 try md5Text.write(to: rd.appendingPathComponent("\(reportName).md5"), atomically: true, encoding: .utf8)
                 try reportText.write(to: rd.appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
                 if allOK {
-                    var h = History.load(pd)
-                    h[sig] = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
-                              "label": cardName, "taille": Self.human(total), "fichiers": "\(files.count)"]
-                    History.save(pd, h)
+                    let entry = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
+                                 "label": cardName, "taille": Self.human(total), "fichiers": "\(files.count)"]
+                    History.update(pd) { $0[sig] = entry }
                 }
             } catch {
                 log("Impossible d'écrire le rapport dans \(rd.path) : \(error.localizedDescription)")
@@ -552,7 +562,7 @@ final class OffloadJob {
                 let pd = d.appendingPathComponent(proj)
                 guard Naming.isDir(pd) else { continue }
                 for dir in [Naming.reportDir, History.legacyDir] {
-                    var hist = History.load(pd, dir: dir)
+                    let hist = History.load(pd, dir: dir)
                     for sig in signatures {
                         guard let e = hist[sig] else { continue }
                         if copyStillExists(projectDir: pd, display: e["dossier"] ?? "") {
@@ -562,8 +572,7 @@ final class OffloadJob {
                             full["projet"] = full["projet"] ?? proj
                             entry = entry ?? full
                         } else {
-                            hist[sig] = nil
-                            History.save(pd, hist, dir: dir)
+                            History.update(pd, dir: dir) { $0[sig] = nil }
                         }
                     }
                 }

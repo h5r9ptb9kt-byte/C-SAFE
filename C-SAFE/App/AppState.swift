@@ -21,13 +21,25 @@ struct Destination: Identifiable, Codable, Equatable {
 
 /// Carte branchée, affichée sous le même nom que dans la barre latérale du Finder.
 struct CardVolume: Identifiable, Equatable {
-    var id: String { url.path }
+    var id: String { key }
     let url: URL
     let name: String
     let detail: String
     let isCamera: Bool
     let ejectable: Bool
+    var kind: String? = nil                        // marque / format reconnus (« Sony XAVC », « Son (WAV) »…)
+    var key: String = ""                           // chemin + identifiant du volume (une carte = une clé)
     var previous: OffloadJob.PreviousCopy? = nil   // déjà copiée : où et sur quel disque
+}
+
+/// Une copie en cours (plusieurs possibles en même temps)
+struct RunningCopy: Identifiable {
+    var id: String { path }
+    let path: String
+    let cardName: String
+    let label: String
+    var progress: Double = 0
+    var text: String = "Analyse de la carte…"
 }
 
 struct LogLine: Identifiable {
@@ -47,6 +59,7 @@ private struct StoredSettings: Codable {
     var eject = true
     var autoWatch = false
     var useShootDay = true
+    var maxParallel = 2
 }
 
 @MainActor
@@ -72,19 +85,29 @@ final class AppState: ObservableObject {
 
     // État
     @Published private(set) var watching = false
-    @Published private(set) var busy = false
-    @Published private(set) var progress: Double = 0
+    /// Copies en cours, par carte (chemin)
+    @Published private(set) var running: [String: RunningCopy] = [:]
+    /// Nombre de copies simultanées (1 = l'une après l'autre ; 2-3 conseillé sur SSD)
+    @Published var maxParallel: Int = 2 { didSet { save(); startNext() } }
+    var busy: Bool { !running.isEmpty }
+    /// Avancement global (moyenne des copies en cours)
+    var progress: Double { running.isEmpty ? (lastSuccess == true ? 1 : 0) : running.values.map(\.progress).reduce(0, +) / Double(running.count) }
     @Published private(set) var progressText = ""
     @Published private(set) var status = "Prêt"
     @Published private(set) var lastSuccess: Bool?
     @Published private(set) var log: [LogLine] = []
     @Published private(set) var done: [String] = []
     @Published private(set) var nextPreview = ""
-    @Published var duplicatePrompt: OffloadResult?
+    @Published private var duplicateQueue: [OffloadResult] = []
+    var duplicatePrompt: OffloadResult? {
+        get { duplicateQueue.first }
+        set { if newValue == nil { if !duplicateQueue.isEmpty { duplicateQueue.removeFirst() } } else if let v = newValue { duplicateQueue.append(v) } }
+    }
     @Published var errorMessage: String?
     @Published var alreadyMounted: [URL] = []
     @Published private(set) var cards: [CardVolume] = []
-    @Published private(set) var activeCard: URL?
+    /// Source attribuée à chaque carte (clé de la carte → « CamA », « SON »…)
+    @Published private(set) var assignments: [String: String] = [:]
     @Published private(set) var copiedCards: Set<String> = []
 
     private var camTypes: [String: String]
@@ -103,7 +126,8 @@ final class AppState: ObservableObject {
         var project: String? = nil
     }
     private var queue: [QueueItem] = []
-    private var currentItem: QueueItem?
+    private var jobs: [String: (job: OffloadJob, item: QueueItem)] = [:]
+    private var duplicateItems: [String: QueueItem] = [:]   // carte → réglages, pour « Copier quand même »
 
     /// Copie ratée, interrompue ou incomplète : affichée avec « Recommencer »
     struct CopyFailure: Identifiable {
@@ -115,8 +139,17 @@ final class AppState: ObservableObject {
         let day: String
         let project: String
     }
-    @Published var failure: CopyFailure?
-    private var job: OffloadJob?
+    @Published private var failureQueue: [CopyFailure] = []
+    var failure: CopyFailure? {
+        get { failureQueue.first }
+        set {
+            if let v = newValue {
+                if failureQueue.isEmpty { failureQueue.append(v) } else { failureQueue[0] = v }
+            } else if !failureQueue.isEmpty {
+                failureQueue.removeFirst()
+            }
+        }
+    }
     private var resolved: [UUID: URL] = [:]
     private var activity: NSObjectProtocol?
     #if os(macOS)
@@ -141,12 +174,13 @@ final class AppState: ObservableObject {
         eject = s.eject
         autoWatch = s.autoWatch
         useShootDay = s.useShootDay
+        maxParallel = min(3, max(1, s.maxParallel))
         addLog("C-SAFE prêt. Ajoute au moins 2 disques de sauvegarde.")
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.busy else { return }
-                self.refresh()
+                guard let self else { return }
+                if !self.busy { self.refresh() }
                 self.refreshCards()
             }
         }
@@ -163,6 +197,8 @@ final class AppState: ObservableObject {
         var c = Self.cardInfo(url)
         let uuid = (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString) ?? ""
         let key = url.path + "|" + uuid
+        c.key = key
+        c.kind = OffloadJob.cameraKind(url)
         if signatureCache[key] == nil { signatureCache[key] = OffloadJob.cardSignatures(url) }
         if let sigs = signatureCache[key], !sigs.isEmpty {
             c.previous = OffloadJob.findPreviousCopy(signatures: sigs, destinations: destinationURLs())
@@ -205,6 +241,60 @@ final class AppState: ObservableObject {
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
         cards = pickedCards.map(cardWithHistory)
         #endif
+        autoAssign()
+    }
+
+    // MARK: - Une source par carte
+
+    /// Attribue une source à chaque nouvelle carte : la carte son reçoit SON, les autres la
+    /// première caméra libre (pas encore copiée ce jour, pas déjà attribuée à une autre carte).
+    private func autoAssign() {
+        let present = Set(cards.map(\.key))
+        assignments = assignments.filter { present.contains($0.key) }
+        for c in cards where assignments[c.key] == nil && c.previous == nil {
+            let taken = Set(assignments.values)
+            let free = sources.filter { !done.contains($0) && !taken.contains($0) }
+            if c.kind == "Son (WAV)", free.contains("SON") {
+                assignments[c.key] = "SON"
+            } else if let s = free.first(where: { !Naming.isSound(Naming.label(source: $0)) }) ?? free.first {
+                assignments[c.key] = s
+            }
+        }
+    }
+
+    func sourceFor(_ card: CardVolume) -> String { assignments[card.key] ?? "—" }
+
+    func typeFor(source: String) -> String {
+        Naming.isSound(Naming.label(source: source)) ? "" : (camTypes[source] ?? types.first ?? "")
+    }
+
+    func labelFor(source: String) -> String {
+        Naming.label(source: source, type: typeFor(source: source))
+    }
+
+    func assign(_ source: String, to card: CardVolume) {
+        assignments[card.key] = source
+        addLog("« \(card.name) » → \(source)")
+    }
+
+    func setType(_ t: String, for source: String) {
+        camTypes[source] = t
+        save()
+        objectWillChange.send()
+    }
+
+    /// Sources proposées pour une carte : toutes sauf celles attribuées à une autre carte
+    func sourceChoices(for card: CardVolume) -> (fresh: [String], doneToday: [String]) {
+        let others = Set(assignments.filter { $0.key != card.key }.values)
+        let usable = sources.filter { !others.contains($0) }
+        return (usable.filter { !done.contains($0) }, usable.filter { done.contains($0) })
+    }
+
+    /// Dossier qui sera créé pour cette carte (« CamA_FX3_Carte02 », « SON », « HF2 »…)
+    func previewFor(_ card: CardVolume) -> String {
+        guard let s = assignments[card.key] else { return "" }
+        let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: labelFor(source: s))
+        return String(plan.display.split(separator: "/").last ?? "")
     }
 
     /// Copie manuelle d'une carte de la colonne source
@@ -212,12 +302,15 @@ final class AppState: ObservableObject {
     /// toutes les cartes source pas encore copiées, puis (sur Mac) chaque carte branchée ensuite.
     func startCopy() {
         guard checkReady() else { return }
-        let already = cards.filter { $0.previous != nil }
-        already.forEach { addLog("Déjà copiée, ignorée : « \($0.name) » → \($0.previous!.short)") }
+        let already = cards.filter { $0.previous != nil && running[$0.url.path] == nil }
+        for c in already {
+            addLog("Déjà copiée : « \(c.name) » → \(c.previous!.short)")
+            duplicatePrompt = OffloadResult(ok: false, duplicate: true, message: c.previous!.message, source: c.url)
+        }
         let pending = cards.filter {
             ($0.isCamera || pickedCards.contains($0.url))
                 && $0.previous == nil
-                && activeCard?.path != $0.url.path
+                && running[$0.url.path] == nil
         }
         #if os(macOS)
         watching = true
@@ -286,8 +379,6 @@ final class AppState: ObservableObject {
         }
         refresh()
     }
-    var isSoundSource: Bool { Naming.isSound(Naming.label(source: source)) }
-    var currentLabel: String { Naming.label(source: source, type: isSoundSource ? "" : type) }
     var availableSources: [String] { sources.filter { !done.contains($0) } }
     var isMac: Bool {
         #if os(macOS)
@@ -311,6 +402,7 @@ final class AppState: ObservableObject {
         s.eject = eject
         s.autoWatch = watching
         s.useShootDay = useShootDay
+        s.maxParallel = maxParallel
         if let d = try? JSONEncoder().encode(s) { UserDefaults.standard.set(d, forKey: Self.settingsKey) }
     }
 
@@ -331,67 +423,42 @@ final class AppState: ObservableObject {
         let shift = dayPlan.shifted.map { DayShift(j: $0.j, date: $0.date) }
         if shift != dayShift { dayShift = shift }
         done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
-        if !extraCard, done.contains(source), let first = availableSources.first {
-            addLog("Source « \(source) » déjà copiée ce jour → « \(first) » sélectionnée.")
-            selectSource(first, refreshAfter: false)
-        }
-        let plan = Naming.plan(destinations: urls, project: project, day: day, label: currentLabel)
-        nextPreview = "\(Naming.sanitize(project)) / " + plan.display.replacingOccurrences(of: "/", with: " / ")
+        nextPreview = "\(Naming.sanitize(project)) / \(day)"
     }
 
     // MARK: - Sources et types (listes personnalisables)
 
-    func selectSource(_ s: String, refreshAfter: Bool = true) {
-        source = s
-        if !Naming.isSound(Naming.label(source: s)), let t = camTypes[s] { type = t }
-        save()
-        if refreshAfter { refresh() }
-    }
-
-    /// Source déjà copiée ce jour, choisie pour sa carte suivante (Carte02, Carte03…)
-    func selectNextCard(of s: String) {
-        extraCard = true
-        selectSource(s)
-    }
-
-    /// Libellé « CamB → Carte02 » pour les sources déjà faites
-    func nextCardLabel(for s: String) -> String {
-        let lab = Naming.label(source: s, type: Naming.isSound(Naming.label(source: s)) ? "" : (camTypes[s] ?? type))
-        let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: lab)
-        return "\(s) → \(plan.display.split(separator: "/").last.map(String.init) ?? "")"
-    }
-
-    func selectType(_ t: String) {
-        type = t
-        camTypes[source] = t
-        save()
-        refresh()
-    }
-
-    func addSource(_ name: String) {
+    /// Nouvelle source (« Drone »…) ajoutée à la liste et attribuée à la carte
+    func addSource(_ name: String, for card: CardVolume?) {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !n.isEmpty else { return }
         if !sources.contains(n) { sources.append(n) }
-        selectSource(n)
+        if let card { assign(n, to: card) }
+        save()
     }
 
     func removeSource(_ name: String) {
         sources.removeAll { $0 == name }
         if sources.isEmpty { sources = Naming.defaultSources }
-        if source == name { selectSource(availableSources.first ?? sources[0]) } else { save(); refresh() }
+        assignments = assignments.filter { $0.value != name }
+        autoAssign()
+        save()
     }
 
-    func addType(_ name: String) {
+    /// Nouveau type (« FX6 »…) ajouté à la liste et attribué à la source
+    func addType(_ name: String, for source: String) {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !n.isEmpty else { return }
         if !types.contains(n) { types.append(n) }
-        selectType(n)
+        setType(n, for: source)
     }
 
     func removeType(_ name: String) {
         types.removeAll { $0 == name }
         if types.isEmpty { types = Naming.defaultTypes }
-        if type == name { selectType(types[0]) } else { save() }
+        for (k, v) in camTypes where v == name { camTypes[k] = nil }
+        save()
+        objectWillChange.send()
     }
 
     // MARK: - Disques de sauvegarde
@@ -473,52 +540,95 @@ final class AppState: ObservableObject {
         startNext()
     }
 
+    /// Lance les copies en attente, jusqu'à `maxParallel` en même temps.
+    /// Jamais deux copies de la même source en même temps (numérotation des cartes sûre).
     private func startNext() {
-        guard !busy, !queue.isEmpty else { return }
+        guard !queue.isEmpty, running.count < maxParallel else { return }
         guard checkReady() else {
             queue.forEach { if $0.scoped { $0.url.stopAccessingSecurityScopedResource() } }
             queue.removeAll()
             return
         }
-        var item = queue.removeFirst()
-        item.label = item.label ?? currentLabel
-        item.day = item.day ?? day
-        item.project = item.project ?? project
-        currentItem = item
-        activeCard = item.url
-        busy = true
-        progress = 0
-        progressText = ""
-        lastSuccess = nil
-        status = "Analyse de la carte…"
-        save()
+        var i = 0
+        while running.count < maxParallel && i < queue.count {
+            var item = queue[i]
+            let label = item.label ?? labelForQueued(item.url)
+            guard let label else {
+                addLog("« \(item.url.lastPathComponent) » : aucune source attribuée, copie ignorée.")
+                queue.remove(at: i)
+                continue
+            }
+            if running.values.contains(where: { $0.label == label }) { i += 1; continue }
+            queue.remove(at: i)
+            item.label = label
+            item.day = item.day ?? day
+            item.project = item.project ?? project
+            launch(item)
+        }
+    }
 
-        let scoped = item.scoped
+    private func labelForQueued(_ url: URL) -> String? {
+        guard let card = cards.first(where: { $0.url.path == url.path }), let s = assignments[card.key] else { return nil }
+        return labelFor(source: s)
+    }
+
+    private func launch(_ item: QueueItem) {
+        let path = item.url.path
+        let label = item.label ?? "CamA"
+        if running.isEmpty {
+            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
+                                                             reason: "Copie de carte C-SAFE")
+            #if os(iOS)
+            UIApplication.shared.isIdleTimerDisabled = true
+            #endif
+        }
+        lastSuccess = nil
+        running[path] = RunningCopy(path: path, cardName: cardName(item.url), label: label)
+        status = running.count > 1 ? "\(running.count) copies en cours" : "Copie en cours"
         let newJob = OffloadJob(source: item.url, destinations: destinationURLs(), project: item.project ?? project,
-                                label: item.label ?? currentLabel, day: item.day ?? day, force: item.force) { [weak self] ev in
+                                label: label, day: item.day ?? day, force: item.force) { [weak self] ev in
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.handle(ev, scoped: scoped) }
+                MainActor.assumeIsolated { self?.handle(ev, path: path) }
             }
         }
-        job = newJob
-        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
-                                                         reason: "Copie de carte C-SAFE")
-        #if os(iOS)
-        UIApplication.shared.isIdleTimerDisabled = true
-        #endif
+        jobs[path] = (newJob, item)
         DispatchQueue.global(qos: .userInitiated).async { newJob.run() }
     }
 
+    private func cardName(_ url: URL) -> String {
+        cards.first(where: { $0.url.path == url.path })?.name ?? url.lastPathComponent
+    }
+
+    /// Annule toutes les copies en cours
     func cancelCopy() {
         guard busy else { return }
-        job?.cancel.set()
+        jobs.values.forEach { $0.job.cancel.set() }
         addLog("Annulation demandée…")
     }
 
+    /// Annule la copie d'une seule carte
+    func cancelCopy(of card: CardVolume) {
+        guard let j = jobs[card.url.path] else { return }
+        j.job.cancel.set()
+        addLog("Annulation demandée : « \(card.name) »")
+    }
+
+    func runningCopy(for card: CardVolume) -> RunningCopy? { running[card.url.path] }
+
+    /// « Copier quand même » une carte déjà copiée : nouvelle copie, sous un nouveau numéro
     func confirmDuplicate(_ r: OffloadResult) {
         duplicatePrompt = nil
+        let saved = duplicateItems.removeValue(forKey: r.source.path)
+        var label = saved?.label
+        if label == nil, let card = cards.first(where: { $0.url.path == r.source.path }) {
+            if assignments[card.key] == nil {
+                let taken = Set(assignments.values)
+                assignments[card.key] = sources.first { !done.contains($0) && !taken.contains($0) } ?? sources.first
+            }
+            label = assignments[card.key].map { labelFor(source: $0) }
+        }
         let scoped = r.source.startAccessingSecurityScopedResource()
-        enqueue(r.source, force: true, scoped: scoped)
+        enqueue(r.source, force: true, scoped: scoped, label: label, day: saved?.day, project: saved?.project)
     }
 
     /// « Recommencer » : même carte, même source, même jour, même projet.
@@ -535,48 +645,51 @@ final class AppState: ObservableObject {
         enqueue(f.source, force: true, scoped: scoped, label: f.label, day: f.day, project: f.project)
     }
 
-    private func handle(_ ev: OffloadEvent, scoped: Bool) {
+    private func handle(_ ev: OffloadEvent, path: String) {
         switch ev {
         case .log(let s):
-            addLog(s)
+            let who = running[path]?.label ?? ""
+            addLog(running.count > 1 && !who.isEmpty ? "[\(who)] \(s)" : s)
         case .started(let name):
-            status = "Copie de \(name)"
+            running[path]?.text = "Copie de \(name)"
         case .progress(let phase, let doneBytes, let total, let bps):
-            progress = Double(doneBytes) / Double(total)
+            let p = Double(doneBytes) / Double(total)
             let remaining = bps > 0 ? Double(total - doneBytes) / bps : 0
-            progressText = "\(phase) · \(Int(progress * 100)) % · \(OffloadJob.human(Int64(bps)))/s · reste \(Self.duration(remaining))"
+            running[path]?.progress = p
+            running[path]?.text = "\(phase) · \(Int(p * 100)) % · \(OffloadJob.human(Int64(bps)))/s · reste \(Self.duration(remaining))"
         case .finished(let r):
-            finish(r, scoped: scoped)
+            finish(r, path: path)
         }
     }
 
-    private func finish(_ r: OffloadResult, scoped: Bool) {
-        busy = false
-        job = nil
-        activeCard = nil
-        let item = currentItem
-        currentItem = nil
+    private func finish(_ r: OffloadResult, path: String) {
+        running[path] = nil
+        let entry = jobs.removeValue(forKey: path)
+        let item = entry?.item
+        let scoped = item?.scoped ?? false
+        status = running.isEmpty ? status : "\(running.count) copie(s) en cours"
         if r.ok {
             copiedCards.insert(r.source.path)
             copiedWhere[r.source.path] = "\(Naming.sanitize(item?.project ?? project))/\(r.display)"
         }
-        if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
-        #if os(iOS)
-        UIApplication.shared.isIdleTimerDisabled = false
-        #endif
+        if running.isEmpty {
+            if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
+            #if os(iOS)
+            UIApplication.shared.isIdleTimerDisabled = false
+            #endif
+        }
         if scoped { r.source.stopAccessingSecurityScopedResource() }
 
         if r.duplicate {
+            if let item { duplicateItems[r.source.path] = item }
             addLog(r.message)
             status = "Carte déjà déchargée"
             duplicatePrompt = r
         } else if r.ok {
             addLog("✓ " + r.message)
-            status = "Terminé — \(r.name)"
-            progress = 1
-            progressText = "Copié et vérifié sur tous les disques"
+            if running.isEmpty { status = "Terminé — \(r.name)" }
+            progressText = "\(r.name) : copié et vérifié sur tous les disques"
             lastSuccess = true
-            extraCard = false
             feedback(success: true)
             #if os(macOS)
             if eject { ejectIfVolume(r.source) }
@@ -602,11 +715,11 @@ final class AppState: ObservableObject {
             failure = CopyFailure(title: title,
                                   message: explanation + "\n\nNe formate pas la carte. « Recommencer » relance la même copie (même numéro de carte).",
                                   source: r.source,
-                                  label: item?.label ?? currentLabel,
+                                  label: item?.label ?? "CamA",
                                   day: item?.day ?? day,
                                   project: item?.project ?? project)
         }
-        refresh()
+        if running.isEmpty { refresh() }
         refreshCards()
         startNext()
     }
@@ -677,7 +790,11 @@ final class AppState: ObservableObject {
                 guard self.watching else { return }
                 if OffloadJob.looksLikeCameraCard(url) {
                     self.addLog("Carte détectée : « \(url.lastPathComponent) »")
-                    self.enqueue(url)
+                    if let c = self.cards.first(where: { $0.url.path == url.path }), let prev = c.previous {
+                        self.duplicatePrompt = OffloadResult(ok: false, duplicate: true, message: prev.message, source: url)
+                    } else {
+                        self.enqueue(url)
+                    }
                 } else {
                     self.addLog("Volume « \(url.lastPathComponent) » ignoré (pas reconnu comme carte caméra). Utilise « Choisir une carte » si besoin.")
                 }
