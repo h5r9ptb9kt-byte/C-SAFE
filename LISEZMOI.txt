@@ -21,7 +21,8 @@ CE QUE FAIT C-SAFE
 - Chaque carte branchée reçoit sa source (CamA, SON…) et son type, réglables sur la
   carte elle-même ; la carte son est reconnue toute seule. Pour une 2e, 3e… carte
   d'une source déjà faite : « Déjà copiées ce jour — carte suivante ».
-- Copies simultanées : 1, 2 ou 3 cartes en même temps vers les mêmes disques
+- Cartes copiées en même temps : 1, 2 ou 3 cartes différentes en parallèle (chaque
+  carte va toujours EN ENTIER sur tous les disques)
   (SSD : 2-3 ; disque dur classique : 1 est souvent plus rapide). Progression et
   bouton d'annulation sur chaque carte.
 - Reconnaît une carte déjà copiée par son contenu (même renommée, même dans un
