@@ -63,6 +63,10 @@ final class AppState: ObservableObject {
     @Published var extraCard = false
     @Published private(set) var shootDay: Int?
     @Published private(set) var usedDays: [Int: String] = [:]
+    @Published private(set) var dayExisting = false
+    /// Jours plus récents à renuméroter si la date choisie est plus ancienne (copie en retard)
+    @Published private(set) var dayShift: [DayShift] = []
+    struct DayShift: Hashable { let j: Int; let date: String }
     private var useShootDay = true
 
     // État
@@ -242,13 +246,22 @@ final class AppState: ObservableObject {
     /// Nom du dossier du jour : « J1_2026-10-18 » (ou « 2026-10-18 » sans numéro)
     var day: String { Naming.dayFolder(date: dateString, shootDay: shootDay) }
     /// Choix proposés : J1… jusqu'à quelques jours après le dernier utilisé
-    var shootDayChoices: [Int] { Array(1...max(10, (usedDays.keys.max() ?? 0) + 5)) }
+    var isToday: Bool { Calendar.current.isDateInToday(shootDate) }
 
-    func selectShootDay(_ j: Int?) {
-        if let j, let used = usedDays[j], used != dateString { return }   // déjà pris par un autre jour
-        shootDay = j
-        useShootDay = j != nil
-        save()
+    /// Date plus ancienne que des jours existants : décale J+1 les jours suivants sur tous les disques.
+    func renumberFollowingDays() {
+        guard !busy, !dayShift.isEmpty else { return }
+        let result = Naming.renumberDays(destinations: destinationURLs(), project: project, after: dateString)
+        let proj = Naming.sanitize(project)
+        for (old, new) in result.renamed {
+            addLog("Jour renuméroté : \(old) → \(new)")
+            for (card, where_) in copiedWhere where where_.hasPrefix("\(proj)/\(old)/") || where_ == "\(proj)/\(old)" {
+                copiedWhere[card] = "\(proj)/\(new)" + String(where_.dropFirst("\(proj)/\(old)".count))
+            }
+        }
+        if !result.errors.isEmpty {
+            errorMessage = "Certains dossiers n'ont pas pu être renommés :\n" + result.errors.joined(separator: "\n")
+        }
         refresh()
     }
     var isSoundSource: Bool { Naming.isSound(Naming.label(source: source)) }
@@ -288,17 +301,13 @@ final class AppState: ObservableObject {
             copiedCards.remove(path)
             addLog("Copie supprimée détectée (\(where_)) : la carte peut être recopiée.")
         }
-        // Jour de tournage (J1, J2…) : reprend celui de la date s'il existe déjà, sinon le prochain libre
+        // Jour de tournage (J1, J2…) : automatique, toujours dans l'ordre des dates
         usedDays = Naming.usedShootDays(destinations: urls, project: project)
-        if useShootDay {
-            if let existing = usedDays.first(where: { $0.value == dateString })?.key {
-                shootDay = existing
-            } else if shootDay == nil || (usedDays[shootDay ?? 0].map { $0 != dateString } ?? false) {
-                shootDay = (usedDays.keys.max() ?? 0) + 1
-            }
-        } else {
-            shootDay = nil
-        }
+        let plan = Naming.dayPlan(date: dateString, used: usedDays)
+        shootDay = plan.j
+        dayExisting = plan.existing
+        let shift = plan.shifted.map { DayShift(j: $0.j, date: $0.date) }
+        if shift != dayShift { dayShift = shift }
         done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
         if !extraCard, done.contains(source), let first = availableSources.first {
             addLog("Source « \(source) » déjà copiée ce jour → « \(first) » sélectionnée.")
@@ -416,6 +425,10 @@ final class AppState: ObservableObject {
     }
 
     private func checkReady() -> Bool {
+        if !dayShift.isEmpty {
+            errorMessage = "Le \(Naming.shortDate(dateString)) est avant des jours déjà copiés. Clique « Renuméroter » (ou choisis une autre date) avant de lancer la copie."
+            return false
+        }
         if destinations.isEmpty {
             errorMessage = "Ajoute au moins un disque de sauvegarde (2 recommandés)."
             return false

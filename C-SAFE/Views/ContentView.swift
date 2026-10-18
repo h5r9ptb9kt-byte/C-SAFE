@@ -196,15 +196,22 @@ struct ShootPanel: View {
             }
             HStack(spacing: 6) {
                 FieldLabel(text: "Date").frame(width: 44, alignment: .leading)
-                DatePicker("", selection: $state.shootDate, displayedComponents: .date)
+                DatePicker("", selection: $state.shootDate, in: ...Date(), displayedComponents: .date)
                     .labelsHidden()
                     .datePickerStyle(.compact)
                     .controlSize(.small)
-                Button("Aujourd'hui") { state.shootDate = Date() }
-                    .buttonStyle(SecondaryButtonStyle())
-                ShootDayMenu()
+                if state.isToday {
+                    Text("● Aujourd'hui")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.green)
+                } else {
+                    Button { state.shootDate = Date() } label: { Label("Revenir à aujourd'hui", systemImage: "arrow.uturn.backward") }
+                        .buttonStyle(SecondaryButtonStyle())
+                }
                 Spacer(minLength: 0)
+                DayBadge()
             }
+            DayInfo()
 
             if !state.done.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -239,51 +246,51 @@ struct ShootPanel: View {
     }
 }
 
-/// Jour de tournage J1, J2… — les jours déjà utilisés sont signalés et bloqués.
-struct ShootDayMenu: View {
+/// Numéro du jour de tournage, calculé automatiquement d'après la date
+struct DayBadge: View {
     @EnvironmentObject var state: AppState
-
     var body: some View {
-        Menu {
-            Button {
-                state.selectShootDay(nil)
-            } label: {
-                if state.shootDay == nil { Label("Sans numéro de jour", systemImage: "checkmark") } else { Text("Sans numéro de jour") }
-            }
-            Divider()
-            ForEach(state.shootDayChoices, id: \.self) { j in
-                let used = state.usedDays[j]
-                let isToday = used == state.dateString
-                Button {
-                    state.selectShootDay(j)
-                } label: {
-                    if state.shootDay == j {
-                        Label(isToday ? "J\(j) · ce jour" : "J\(j)", systemImage: "checkmark")
-                    } else if let used, !isToday {
-                        Label("J\(j) · déjà utilisé le \(Naming.shortDate(used))", systemImage: "lock.fill")
-                    } else {
-                        Text("J\(j)")
-                    }
-                }
-                .disabled(used != nil && !isToday)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(state.shootDay.map { "J\($0)" } ?? "J –")
-                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+        Text(state.shootDay.map { "J\($0)" } ?? "J –")
+            .font(.system(size: 13, weight: .heavy, design: .rounded))
+            .foregroundStyle(Theme.orange)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 28)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.orange.opacity(0.14)))
+            .help("Jour de tournage, numéroté automatiquement dans l'ordre des dates")
+    }
+}
+
+/// Explication du J, ou alerte si la date est plus ancienne que des jours déjà copiés
+struct DayInfo: View {
+    @EnvironmentObject var state: AppState
+    var body: some View {
+        let j = state.shootDay ?? 1
+        if state.dayShift.isEmpty {
+            Text(state.dayExisting ? "J\(j) : jour de tournage déjà commencé, les cartes s'y ajoutent."
+                                   : (j == 1 ? "J1 : premier jour de tournage du projet." : "J\(j) : nouveau jour de tournage (après J\(j - 1))."))
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.muted)
+        } else {
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Le \(Naming.shortDate(state.dateString)) est avant " +
+                      state.dayShift.map { "J\($0.j) (\(Naming.shortDate($0.date)))" }.joined(separator: ", ") + ".",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.orange)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(Theme.muted)
+                Text("Pour garder l'ordre, ce jour devient J\(j) et les jours suivants sont décalés sur tous les disques : " +
+                     state.dayShift.map { "J\($0.j)→J\($0.j + 1)" }.joined(separator: ", ") + ".")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.cream)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { state.renumberFollowingDays() } label: { Label("Renuméroter les jours suivants", systemImage: "arrow.down.right.and.arrow.up.left") }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(state.busy)
             }
-            .fieldLook()
-            .contentShape(Rectangle())
+            .padding(7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.orange.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.orange.opacity(0.5), lineWidth: 1))
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Jour de tournage")
     }
 }
 

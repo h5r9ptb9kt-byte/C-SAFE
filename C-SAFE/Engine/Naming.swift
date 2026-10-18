@@ -97,6 +97,67 @@ enum Naming {
         return out
     }
 
+    // MARK: - Jours de tournage : toujours dans l'ordre des dates
+
+    struct DayPlan {
+        let j: Int                              // numéro du jour pour la date choisie
+        let existing: Bool                      // ce jour existe déjà (on le reprend)
+        let shifted: [(j: Int, date: String)]   // jours plus récents à renuméroter (J+1) si on insère une date plus ancienne
+    }
+
+    /// J1, J2… suivent l'ordre chronologique : une date déjà utilisée reprend son J,
+    /// une date plus récente prend le J suivant (même une semaine plus tard),
+    /// une date plus ancienne s'insère à sa place et décale les jours suivants.
+    static func dayPlan(date: String, used: [Int: String]) -> DayPlan {
+        if let j = used.first(where: { $0.value == date })?.key {
+            return DayPlan(j: j, existing: true, shifted: [])
+        }
+        let before = used.filter { $0.value < date }
+        let after = used.filter { $0.value > date }.sorted { $0.key < $1.key }.map { (j: $0.key, date: $0.value) }
+        return DayPlan(j: (before.keys.max() ?? 0) + 1, existing: false, shifted: after)
+    }
+
+    /// Renumérote (J+1) les jours plus récents que `date`, sur chaque disque, et met à jour l'historique.
+    /// Retourne les renommages effectués (ancien → nouveau nom) et les éventuelles erreurs.
+    static func renumberDays(destinations: [URL], project: String, after date: String)
+        -> (renamed: [(old: String, new: String)], errors: [String]) {
+        let fm = FileManager.default
+        var renamed: [(old: String, new: String)] = []
+        var errors: [String] = []
+        guard let re = try? NSRegularExpression(pattern: #"^J([0-9]+)_([0-9]{4}-[0-9]{2}-[0-9]{2})$"#) else { return ([], []) }
+        for d in destinations {
+            let pd = d.appendingPathComponent(sanitize(project))
+            var items: [(j: Int, date: String, name: String)] = []
+            for name in list(pd) {
+                let ns = name as NSString
+                guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)),
+                      let j = Int(ns.substring(with: m.range(at: 1))) else { continue }
+                items.append((j, ns.substring(with: m.range(at: 2)), name))
+            }
+            let toShift = items.filter { $0.date > date }.sorted { $0.j > $1.j }   // du plus grand au plus petit
+            guard !toShift.isEmpty else { continue }
+            var hist = History.load(pd)
+            for it in toShift {
+                let newName = "J\(it.j + 1)_\(it.date)"
+                do {
+                    try fm.moveItem(at: pd.appendingPathComponent(it.name), to: pd.appendingPathComponent(newName))
+                    if !renamed.contains(where: { $0.old == it.name }) { renamed.append((it.name, newName)) }
+                    for (key, entry) in hist {
+                        if let dossier = entry["dossier"], dossier == it.name || dossier.hasPrefix(it.name + "/") {
+                            var e = entry
+                            e["dossier"] = newName + String(dossier.dropFirst(it.name.count))
+                            hist[key] = e
+                        }
+                    }
+                } catch {
+                    errors.append("\(d.lastPathComponent)/\(it.name) : \(error.localizedDescription)")
+                }
+            }
+            History.save(pd, hist)
+        }
+        return (renamed, errors)
+    }
+
     /// « 2026-10-17 » → « 17/10 »
     static func shortDate(_ iso: String) -> String {
         let p = iso.split(separator: "-")

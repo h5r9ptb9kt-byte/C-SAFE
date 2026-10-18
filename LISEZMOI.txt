@@ -10,9 +10,9 @@ CE QUE FAIT C-SAFE
       <Disque>/<Projet>/J1_2026-10-18/SON/         (enregistreur, copié directement)
       <Disque>/<Projet>/J1_2026-10-18/SON/HF1, HF3… (HF au choix, dans l'ordre que tu veux)
       <Disque>/<Projet>/Rapports_de_copie/    (rapports, .md5, .mhl — toujours après les jours)
-- Jour de tournage J1, J2, J3… ajouté au dossier de la date. C-SAFE reprend le J
-  déjà utilisé pour cette date, propose sinon le suivant, et bloque (cadenas) les J
-  déjà pris par un autre jour. « Sans numéro de jour » reste possible.
+- Jour de tournage J1, J2, J3… automatique, toujours dans l'ordre des dates (J2 peut
+  être une semaine après J1). Une date déjà utilisée reprend son J. Une date plus
+  ancienne (copie en retard) propose de renuméroter les jours suivants.
 - Vérifie chaque fichier sur chaque disque (MD5) et ajoute un fichier .mhl
   (standard cinéma) rangé dans Rapports_de_copie : les dossiers de cartes restent
   identiques à la carte, sans aucun fichier ajouté.
