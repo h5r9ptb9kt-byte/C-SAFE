@@ -194,7 +194,11 @@ final class AppState: ObservableObject {
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
         let extra = pickedCards.filter { p in !mounted.contains { $0.standardizedFileURL.path == p.standardizedFileURL.path } }
         let mountedPaths = Set(vols.map { $0.path })
-        signatureCache = signatureCache.filter { mountedPaths.contains(String($0.key.split(separator: "|").first ?? "")) || pickedCards.contains(where: { p in $0.key.hasPrefix(p.path + "|") }) }
+        let pickedPaths = Set(pickedCards.map { $0.path })
+        signatureCache = signatureCache.filter { entry in
+            let path = String(entry.key.split(separator: "|").first ?? "")
+            return mountedPaths.contains(path) || pickedPaths.contains(path)
+        }
         cards = (mounted.map(cardWithHistory).sorted { ($0.isCamera ? 0 : 1, $0.name) < ($1.isCamera ? 0 : 1, $1.name) })
             + extra.map(cardWithHistory)
         #else

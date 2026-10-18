@@ -11,6 +11,7 @@ struct CardFile {
     let url: URL
     let rel: String      // chemin relatif dans la carte, avec « / »
     let size: Int64
+    var mtime: Int = 0   // date de modification (secondes)
 }
 
 struct OffloadResult {
@@ -184,7 +185,7 @@ final class OffloadJob {
         // Doublon ? La carte est reconnue par son contenu (liste et poids de chaque fichier),
         // quel que soit son nom, dans tous les projets présents sur les disques de destination.
         let sig = Self.signature(files)
-        if !force, let dup = Self.findPreviousCopy(signatures: [sig, Self.legacySignature(files, cardName)],
+        if !force, let dup = Self.findPreviousCopy(signatures: [sig, Self.signatureV2(files), Self.legacySignature(files, cardName)],
                                                        destinations: destinations) {
             return OffloadResult(ok: false, duplicate: true, message: dup.message, source: source)
         }
@@ -582,7 +583,7 @@ final class OffloadJob {
     /// Empreintes d'une carte branchée : actuelle (contenu seul) et ancienne (nom + contenu)
     static func cardSignatures(_ root: URL) -> [String] {
         guard let files = try? scan(root), !files.isEmpty else { return [] }
-        return [signature(files), legacySignature(files, root.lastPathComponent)]
+        return [signature(files), signatureV2(files), legacySignature(files, root.lastPathComponent)]
     }
 
     /// Empreinte utilisée par les versions précédentes (nom de la carte + contenu)
@@ -603,7 +604,7 @@ final class OffloadJob {
 
     static func scan(_ root: URL) throws -> [CardFile] {
         let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .fileSizeKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
         guard let en = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: [],
                                                       errorHandler: { _, _ in true }) else {
             throw OffloadError(message: "impossible de lire la carte.")
@@ -621,7 +622,8 @@ final class OffloadJob {
             let p = url.resolvingSymlinksInPath().standardizedFileURL.path
             var rel = p.hasPrefix(rootPath) ? String(p.dropFirst(rootPath.count)) : name
             while rel.hasPrefix("/") { rel.removeFirst() }
-            out.append(CardFile(url: url, rel: rel, size: Int64(v?.fileSize ?? 0)))
+            out.append(CardFile(url: url, rel: rel, size: Int64(v?.fileSize ?? 0),
+                                mtime: Int(v?.contentModificationDate?.timeIntervalSince1970 ?? 0)))
         }
         return out.sorted { $0.rel < $1.rel }
     }
@@ -677,6 +679,14 @@ final class OffloadJob {
 
     /// Empreinte de la carte : liste des fichiers et poids de chacun (indépendante du nom de la carte).
     static func signature(_ files: [CardFile]) -> String {
+        var h = Insecure.MD5()
+        h.update(data: Data("csafe-v3\n".utf8))
+        for f in files { h.update(data: Data("\(f.rel)|\(f.size)|\(f.mtime)\n".utf8)) }
+        return hex(h.finalize())
+    }
+
+    /// Empreinte v2 (chemin + poids), utilisée par la version précédente
+    static func signatureV2(_ files: [CardFile]) -> String {
         var h = Insecure.MD5()
         h.update(data: Data("csafe-v2\n".utf8))
         for f in files { h.update(data: Data("\(f.rel)|\(f.size)\n".utf8)) }
