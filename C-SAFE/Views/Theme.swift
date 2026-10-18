@@ -17,6 +17,14 @@ extension Color {
 }
 
 enum Theme {
+    /// Sur iPhone / iPad, textes et zones de toucher plus grands (doigt, pas souris)
+    #if os(iOS)
+    static let scale: CGFloat = 1.22
+    #else
+    static let scale: CGFloat = 1
+    #endif
+    static func fs(_ size: CGFloat) -> CGFloat { (size * scale).rounded() }
+
     static let background = Color(hex: 0x0F1924)
     static let panel = Color(hex: 0x172636)
     static let field = Color(hex: 0x1D2D40)
@@ -40,10 +48,10 @@ struct Panel<Content: View>: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: Theme.fs(10), weight: .bold))
                     .foregroundStyle(Theme.orange)
                 Text(title.uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .font(.system(size: Theme.fs(10), weight: .bold, design: .rounded))
                     .tracking(1)
                     .foregroundStyle(Theme.muted)
             }
@@ -60,7 +68,7 @@ struct FieldLabel: View {
     let text: String
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: Theme.fs(10), weight: .medium))
             .foregroundStyle(Theme.muted)
     }
 }
@@ -70,7 +78,7 @@ extension View {
     func fieldLook() -> some View {
         self
             .padding(.horizontal, 8)
-            .frame(minHeight: 28)
+            .frame(minHeight: Theme.fs(28))
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.field))
             .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
     }
@@ -81,9 +89,9 @@ struct PrimaryButtonStyle: ButtonStyle {
     var color: Color = Theme.orange
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .font(.system(size: Theme.fs(14), weight: .bold, design: .rounded))
             .foregroundStyle(Color(hex: 0x1A0F06))
-            .frame(maxWidth: .infinity, minHeight: 34)
+            .frame(maxWidth: .infinity, minHeight: Theme.fs(34) + (Theme.scale > 1 ? 8 : 0))
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color))
             .opacity(configuration.isPressed ? 0.8 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
@@ -94,10 +102,10 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .font(.system(size: Theme.fs(12), weight: .semibold, design: .rounded))
             .foregroundStyle(Theme.cream)
             .padding(.horizontal, 9)
-            .frame(minHeight: 26)
+            .frame(minHeight: Theme.fs(26) + (Theme.scale > 1 ? 6 : 0))
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.field))
             .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
             .opacity(configuration.isPressed ? 0.75 : 1)

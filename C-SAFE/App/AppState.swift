@@ -733,7 +733,18 @@ final class AppState: ObservableObject {
             activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
                                                              reason: "Copie de carte C-SAFE")
             #if os(iOS)
-            UIApplication.shared.isIdleTimerDisabled = true
+            let note = BackgroundCopy.shared.begin(
+                title: "C-SAFE — copie des cartes",
+                progress: { [weak self] in
+                    guard let self else { return (0, "") }
+                    let left = self.queue.count
+                    return (self.progress, "\(self.running.count) carte(s) en cours" + (left > 0 ? " · \(left) en attente" : ""))
+                },
+                onExpire: { [weak self] in
+                    self?.addLog("⚠ iOS a interrompu la copie en arrière-plan : relance-la avec « Démarrer la copie ».")
+                    self?.cancelCopy()
+                })
+            if !note.isEmpty { addLog(note) }
             #endif
         }
         lastSuccess = nil
@@ -831,7 +842,7 @@ final class AppState: ObservableObject {
         if running.isEmpty {
             if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
             #if os(iOS)
-            UIApplication.shared.isIdleTimerDisabled = false
+            if queue.isEmpty { BackgroundCopy.shared.end(success: r.ok) }
             #endif
         }
         if scoped { r.source.stopAccessingSecurityScopedResource() }

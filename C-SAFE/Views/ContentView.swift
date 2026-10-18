@@ -125,10 +125,10 @@ struct HeaderView: View {
                 .overlay(Circle().stroke(Theme.cream, lineWidth: 1.5))
             VStack(alignment: .leading, spacing: 0) {
                 Text("C-SAFE")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .font(.system(size: Theme.fs(18), weight: .heavy, design: .rounded))
                     .foregroundStyle(Theme.cream)
                 Text("par C-FOCUS")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: Theme.fs(10), weight: .medium))
                     .foregroundStyle(Theme.orange)
             }
             Spacer(minLength: 6)
@@ -155,7 +155,7 @@ struct StatusPill: View {
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).font(.system(size: 10, weight: .semibold, design: .rounded))
+            Text(text).font(.system(size: Theme.fs(10), weight: .semibold, design: .rounded))
         }
         .foregroundStyle(color)
         .padding(.horizontal, 8)
@@ -176,7 +176,7 @@ struct ShootPanel: View {
                 FieldLabel(text: "Projet").frame(width: 44, alignment: .leading)
                 TextField("Nom du projet", text: $state.project)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.system(size: Theme.fs(13)))
                     .foregroundStyle(Theme.cream)
                     .fieldLook()
             }
@@ -188,7 +188,7 @@ struct ShootPanel: View {
                     .controlSize(.small)
                 if state.isToday {
                     Text("● Aujourd'hui")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .font(.system(size: Theme.fs(11), weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.green)
                 } else {
                     Button { state.shootDate = Date() } label: { Label("Revenir à aujourd'hui", systemImage: "arrow.uturn.backward") }
@@ -203,13 +203,13 @@ struct ShootPanel: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         Text("Faites :")
-                            .font(.system(size: 10))
+                            .font(.system(size: Theme.fs(10)))
                             .foregroundStyle(Theme.muted)
                         ForEach(state.done, id: \.self) { s in
                             let nums = state.doneNumbers[s] ?? []
                             let model = state.lockedType(s).flatMap { $0.isEmpty ? nil : " \($0)" } ?? ""
                             Text(nums.isEmpty ? "✓ \(s)\(model)" : "✓ \(s)\(model) · n°" + nums.map(String.init).joined(separator: ", "))
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(size: Theme.fs(10), weight: .semibold))
                                 .foregroundStyle(Theme.green)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -228,7 +228,7 @@ struct DayBadge: View {
     @EnvironmentObject var state: AppState
     var body: some View {
         Text(state.shootDay.map { "J\($0)" } ?? "J –")
-            .font(.system(size: 13, weight: .heavy, design: .rounded))
+            .font(.system(size: Theme.fs(13), weight: .heavy, design: .rounded))
             .foregroundStyle(Theme.orange)
             .padding(.horizontal, 10)
             .frame(minHeight: 28)
@@ -245,18 +245,18 @@ struct DayInfo: View {
         if state.dayShift.isEmpty {
             Text(state.dayExisting ? "J\(j) : jour de tournage déjà commencé, les cartes s'y ajoutent."
                                    : (j == 1 ? "J1 : premier jour de tournage du projet." : "J\(j) : nouveau jour de tournage (après J\(j - 1))."))
-                .font(.system(size: 10))
+                .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
         } else {
             VStack(alignment: .leading, spacing: 5) {
                 Label("Le \(Naming.shortDate(state.dateString)) est avant " +
                       state.dayShift.map { "J\($0.j) (\(Naming.shortDate($0.date)))" }.joined(separator: ", ") + ".",
                       systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Theme.fs(11), weight: .semibold))
                     .foregroundStyle(Theme.orange)
                 Text("Pour garder l'ordre, ce jour devient J\(j) et les jours suivants sont décalés sur tous les disques : " +
                      state.dayShift.map { "J\($0.j)→J\($0.j + 1)" }.joined(separator: ", ") + ".")
-                    .font(.system(size: 10))
+                    .font(.system(size: Theme.fs(10)))
                     .foregroundStyle(Theme.cream)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { state.renumberFollowingDays() } label: { Label("Renuméroter les jours suivants", systemImage: "arrow.down.right.and.arrow.up.left") }
@@ -317,12 +317,12 @@ struct ChoiceMenu: View {
         } label: {
             HStack(spacing: 4) {
                 Text(value)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.system(size: Theme.fs(13), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.cream)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: Theme.fs(8), weight: .bold))
                     .foregroundStyle(Theme.muted)
             }
             .fieldLook()
@@ -363,7 +363,7 @@ struct TransferPanel: View {
 
     private func flowArrow(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 11, weight: .heavy))
+            .font(.system(size: Theme.fs(11), weight: .heavy))
             .foregroundStyle(state.busy ? Theme.orange : Theme.muted)
             .frame(width: 20, height: 20)
             .background(Circle().fill((state.busy ? Theme.orange : Theme.muted).opacity(0.15)))
@@ -375,7 +375,7 @@ struct ColumnTitle: View {
     let icon: String
     var body: some View {
         Label(title, systemImage: icon)
-            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .font(.system(size: Theme.fs(11), weight: .bold, design: .rounded))
             .foregroundStyle(Theme.cream)
     }
 }
@@ -390,7 +390,7 @@ struct SourceColumn: View {
             ColumnTitle(title: "Source", icon: "sdcard.fill")
             if state.cards.isEmpty {
                 Text(state.isMac ? "Branche une carte : elle apparaît ici." : "Aucune carte choisie.")
-                    .font(.system(size: 11))
+                    .font(.system(size: Theme.fs(11)))
                     .foregroundStyle(Theme.muted)
                     .padding(7)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -418,26 +418,26 @@ struct CardRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "sdcard.fill")
-                    .font(.system(size: 13))
+                    .font(.system(size: Theme.fs(13)))
                     .foregroundStyle(isCopied ? Theme.green : (card.isCamera ? Theme.orange : Theme.muted))
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(card.name)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: Theme.fs(12), weight: .semibold))
                         .foregroundStyle(Theme.cream)
                         .lineLimit(1)
                     Text(subtitle)
-                        .font(.system(size: 10))
+                        .font(.system(size: Theme.fs(10)))
                         .foregroundStyle(isCopied ? Theme.green : Theme.muted)
                         .lineLimit(2)
                 }
                 Spacer(minLength: 2)
                 if let run {
                     Text("\(Int(run.progress * 100)) %")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.system(size: Theme.fs(11), weight: .bold, design: .monospaced))
                         .foregroundStyle(Theme.orange)
                     Button { state.cancelCopy(of: card) } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 13))
+                        Image(systemName: "xmark.circle.fill").font(.system(size: Theme.fs(13)))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.muted)
@@ -446,7 +446,7 @@ struct CardRow: View {
                     #if os(macOS)
                     if card.ejectable {
                         Button { state.ejectCard(card) } label: {
-                            Image(systemName: "eject.fill").font(.system(size: 11))
+                            Image(systemName: "eject.fill").font(.system(size: Theme.fs(11)))
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.cream)
@@ -454,7 +454,7 @@ struct CardRow: View {
                     }
                     #else
                     Button { state.forgetCard(card) } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 13))
+                        Image(systemName: "xmark.circle.fill").font(.system(size: Theme.fs(13)))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.muted)
@@ -467,7 +467,7 @@ struct CardRow: View {
                     .progressViewStyle(.linear)
                     .tint(Theme.orange)
                 Text("\(run.label) · \(run.text)")
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: Theme.fs(9), design: .monospaced))
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
             } else if !isCopied {
@@ -500,7 +500,7 @@ struct CardRow: View {
                 if !state.previewFor(card).isEmpty {
                     HStack(spacing: 6) {
                         Label(state.previewFor(card), systemImage: "folder.fill")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .font(.system(size: Theme.fs(10), weight: .medium, design: .monospaced))
                             .foregroundStyle(Theme.cyan)
                             .lineLimit(1)
                         Spacer(minLength: 2)
@@ -556,10 +556,10 @@ struct CardNumberMenu: View {
         } label: {
             HStack(spacing: 3) {
                 Text("n°\(chosen ?? auto)")
-                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .font(.system(size: Theme.fs(11), weight: .heavy, design: .rounded))
                     .foregroundStyle(chosen == nil ? Theme.cream : Theme.orange)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 7, weight: .bold))
+                    .font(.system(size: Theme.fs(7), weight: .bold))
                     .foregroundStyle(Theme.muted)
             }
             .padding(.horizontal, 6)
@@ -588,28 +588,28 @@ struct DestinationsColumn: View {
                 let ok = state.isReachable(d)
                 HStack(spacing: 6) {
                     Text("\(index + 1)")
-                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .font(.system(size: Theme.fs(10), weight: .heavy, design: .rounded))
                         .foregroundStyle(ok ? Theme.cyan : Theme.red)
                         .frame(width: 18, height: 18)
                         .background(Circle().fill((ok ? Theme.cyan : Theme.red).opacity(0.15)))
                     VStack(alignment: .leading, spacing: 0) {
                         Text(d.name)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: Theme.fs(12), weight: .semibold))
                             .foregroundStyle(Theme.cream)
                             .lineLimit(1)
                         Text(ok ? state.freeSpace(d) : "Introuvable — branche le disque")
-                            .font(.system(size: 10))
+                            .font(.system(size: Theme.fs(10)))
                             .foregroundStyle(ok ? Theme.muted : Theme.red)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 2)
                     if state.busy {
                         Text("\(Int(state.progress * 100)) %")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .font(.system(size: Theme.fs(11), weight: .bold, design: .monospaced))
                             .foregroundStyle(Theme.orange)
                     } else {
                         Button(role: .destructive) { state.removeDestination(d) } label: {
-                            Image(systemName: "trash").font(.system(size: 10)).foregroundStyle(Theme.muted)
+                            Image(systemName: "trash").font(.system(size: Theme.fs(10))).foregroundStyle(Theme.muted)
                         }
                         .buttonStyle(.plain)
                         .help("Retirer ce disque")
@@ -624,7 +624,7 @@ struct DestinationsColumn: View {
             if state.destinations.count < 2 {
                 Text(state.destinations.isEmpty ? "Ajoute 2 disques : chaque carte y est copiée en même temps."
                                                 : "⚠ Ajoute un 2e disque pour être en sécurité.")
-                    .font(.system(size: 10))
+                    .font(.system(size: Theme.fs(10)))
                     .foregroundStyle(Theme.orange)
             }
         }
@@ -641,10 +641,10 @@ struct CopyPanel: View {
         Panel(title: "Copie", icon: "sdcard.fill") {
             HStack(spacing: 6) {
                 Image(systemName: statusIcon)
-                    .font(.system(size: 13))
+                    .font(.system(size: Theme.fs(13)))
                     .foregroundStyle(statusColor)
                 Text(state.status)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: Theme.fs(12), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.cream)
                     .lineLimit(2)
             }
@@ -653,7 +653,7 @@ struct CopyPanel: View {
                     .progressViewStyle(.linear)
                     .tint(state.lastSuccess == true ? Theme.green : (state.lastSuccess == false ? Theme.red : Theme.orange))
                 Text(state.busy ? "\(state.running.count) copie(s) en cours — détail sur chaque carte" : state.progressText)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: Theme.fs(10), design: .monospaced))
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
             }
@@ -666,7 +666,7 @@ struct CopyPanel: View {
             }
             .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
             Text("Rien n'est copié tant que tu n'as pas cliqué « Démarrer la copie ». Chaque nouvelle carte attend ton clic.")
-                .font(.system(size: 10))
+                .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
             HStack(spacing: 8) {
                 if state.busy {
@@ -677,7 +677,7 @@ struct CopyPanel: View {
                 Toggle("Éjecter à la fin", isOn: $state.eject)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
-                    .font(.system(size: 11))
+                    .font(.system(size: Theme.fs(11)))
                     .foregroundStyle(Theme.cream)
                     .onChange(of: state.eject) { state.save() }
             }
@@ -691,8 +691,8 @@ struct CopyPanel: View {
                 Button(role: .destructive) { state.cancelCopy() } label: { Label(state.running.count > 1 ? "Tout annuler" : "Annuler", systemImage: "xmark.circle") }
                     .buttonStyle(SecondaryButtonStyle())
             }
-            Text("Branche le lecteur et les disques (hub USB-C), choisis la carte, puis « Démarrer la copie ». Garde l'app ouverte.")
-                .font(.system(size: 10))
+            Text("Branche le lecteur et les disques sur le hub USB-C alimenté, choisis la carte, nomme-la, puis « Démarrer la copie ». La copie continue si tu changes d'app ou si tu reçois un appel (iOS 26 ou plus récent).")
+                .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
             #endif
         }
@@ -730,13 +730,13 @@ struct LogPanel: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: Theme.fs(9), weight: .bold))
                     Text("JOURNAL")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .font(.system(size: Theme.fs(10), weight: .bold, design: .rounded))
                         .tracking(1)
                     if !expanded, let last = state.log.last {
                         Text(last.text)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: Theme.fs(10), design: .monospaced))
                             .foregroundStyle(color(for: last.text))
                             .lineLimit(1)
                     }
@@ -757,7 +757,7 @@ struct LogPanel: View {
                                 .foregroundStyle(color(for: line.text))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: Theme.fs(10), design: .monospaced))
                     }
                 }
                 .textSelection(.enabled)
