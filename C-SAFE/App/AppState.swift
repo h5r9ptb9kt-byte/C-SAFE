@@ -303,10 +303,10 @@ final class AppState: ObservableObject {
         }
         // Jour de tournage (J1, J2…) : automatique, toujours dans l'ordre des dates
         usedDays = Naming.usedShootDays(destinations: urls, project: project)
-        let plan = Naming.dayPlan(date: dateString, used: usedDays)
-        shootDay = plan.j
-        dayExisting = plan.existing
-        let shift = plan.shifted.map { DayShift(j: $0.j, date: $0.date) }
+        let dayPlan = Naming.dayPlan(date: dateString, used: usedDays)
+        shootDay = dayPlan.j
+        dayExisting = dayPlan.existing
+        let shift = dayPlan.shifted.map { DayShift(j: $0.j, date: $0.date) }
         if shift != dayShift { dayShift = shift }
         done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
         if !extraCard, done.contains(source), let first = availableSources.first {
