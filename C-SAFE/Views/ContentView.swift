@@ -489,10 +489,14 @@ struct CardRow: View {
                         .help("Type de caméra")
                 }
                 if !state.previewFor(card).isEmpty {
-                    Label(state.previewFor(card), systemImage: "folder.fill")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Theme.cyan)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Label(state.previewFor(card), systemImage: "folder.fill")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Theme.cyan)
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
+                        CardNumberMenu(card: card)
+                    }
                 }
             }
         }
@@ -506,6 +510,59 @@ struct CardRow: View {
         if let p = card.previous { return "✓ Déjà copiée : \(p.short)" }
         if !card.isCamera { return "Pas une carte caméra" }
         return card.detail.isEmpty ? "Carte caméra" : card.detail
+    }
+}
+
+/// Numéro de la carte : automatique (le suivant) ou choisi à la main pour garder l'ordre de tournage
+struct CardNumberMenu: View {
+    @EnvironmentObject var state: AppState
+    let card: CardVolume
+
+    var body: some View {
+        let used = state.usedCardNumbers(for: card)
+        let auto = state.autoCardNumber(for: card)
+        let chosen = state.cardNumber(for: card)
+        let maxN = max(6, (used.max() ?? 0) + 3, auto + 2)
+        Menu {
+            Button {
+                state.setCardNumber(nil, for: card)
+            } label: {
+                if chosen == nil { Label("Automatique (n°\(auto))", systemImage: "checkmark") } else { Text("Automatique (n°\(auto))") }
+            }
+            Divider()
+            ForEach(1...maxN, id: \.self) { n in
+                Button {
+                    state.setCardNumber(n, for: card)
+                } label: {
+                    if used.contains(n) {
+                        Label("Carte n°\(n) · déjà copiée", systemImage: "lock.fill")
+                    } else if chosen == n {
+                        Label("Carte n°\(n)", systemImage: "checkmark")
+                    } else {
+                        Text("Carte n°\(n)")
+                    }
+                }
+                .disabled(used.contains(n))
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text("n°\(chosen ?? auto)")
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .foregroundStyle(chosen == nil ? Theme.cream : Theme.orange)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 6)
+            .frame(minHeight: 20)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Theme.panel))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Numéro de la carte : automatique, ou choisi pour garder l'ordre de tournage (ex. carte n°2 copiée avant la n°1)")
     }
 }
 

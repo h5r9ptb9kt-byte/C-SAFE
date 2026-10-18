@@ -111,6 +111,8 @@ final class AppState: ObservableObject {
     @Published private(set) var cards: [CardVolume] = []
     /// Source attribuée à chaque carte (clé de la carte → « CamA », « SON »…)
     @Published private(set) var assignments: [String: String] = [:]
+    /// Numéro de carte choisi à la main (clé de la carte → n°), absent = automatique
+    @Published private(set) var cardNumbers: [String: Int] = [:]
     @Published private(set) var copiedCards: Set<String> = []
 
     private var camTypes: [String: String]
@@ -127,6 +129,7 @@ final class AppState: ObservableObject {
         var label: String? = nil
         var day: String? = nil
         var project: String? = nil
+        var cardNumber: Int? = nil
     }
     private var queue: [QueueItem] = []
     private var jobs: [String: (job: OffloadJob, item: QueueItem)] = [:]
@@ -141,6 +144,7 @@ final class AppState: ObservableObject {
         let label: String
         let day: String
         let project: String
+        var cardNumber: Int? = nil
     }
     @Published private var failureQueue: [CopyFailure] = []
     var failure: CopyFailure? {
@@ -255,6 +259,7 @@ final class AppState: ObservableObject {
         // Une carte déjà copiée (et pas en cours de copie) libère sa source pour les autres cartes
         let holding = Set(cards.filter { $0.previous == nil || running[$0.url.path] != nil }.map(\.key))
         assignments = assignments.filter { holding.contains($0.key) }
+        cardNumbers = cardNumbers.filter { holding.contains($0.key) }
         for c in cards where assignments[c.key] == nil && c.previous == nil {
             let taken = Set(assignments.values)
             let free = sources.filter { !done.contains($0) && !taken.contains($0) }
@@ -278,6 +283,7 @@ final class AppState: ObservableObject {
 
     func assign(_ source: String, to card: CardVolume) {
         assignments[card.key] = source
+        cardNumbers[card.key] = nil
         addLog("« \(card.name) » → \(source)")
     }
 
@@ -294,6 +300,27 @@ final class AppState: ObservableObject {
         (sources.filter { !done.contains($0) }, sources.filter { done.contains($0) })
     }
 
+    /// Numéro de carte : nil = automatique (le suivant)
+    func cardNumber(for card: CardVolume) -> Int? { cardNumbers[card.key] }
+
+    func setCardNumber(_ n: Int?, for card: CardVolume) {
+        cardNumbers[card.key] = n
+        if let n { addLog("« \(card.name) » → carte n°\(n)") }
+    }
+
+    /// Numéros déjà copiés pour la source de cette carte (bloqués dans le menu)
+    func usedCardNumbers(for card: CardVolume) -> Set<Int> {
+        guard let s = assignments[card.key] else { return [] }
+        return Naming.usedCardNumbers(destinations: destinationURLs(), project: project, day: day, label: labelFor(source: s))
+    }
+
+    /// Numéro que prendrait la carte en automatique
+    func autoCardNumber(for card: CardVolume) -> Int {
+        let name = previewFor(card, ignoringManual: true)
+        if let r = name.range(of: #"_Carte([0-9]+)$"#, options: .regularExpression), let n = Int(name[r].dropFirst("_Carte".count)) { return n }
+        return 1
+    }
+
     /// « CamA — carte n°2 » : numéro de la prochaine carte de cette source ce jour-là
     func nextCardText(for source: String) -> String {
         let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: labelFor(source: source))
@@ -306,9 +333,13 @@ final class AppState: ObservableObject {
     }
 
     /// Dossier qui sera créé pour cette carte (« CamA_FX3_Carte02 », « SON », « HF2 »…)
-    func previewFor(_ card: CardVolume) -> String {
+    func previewFor(_ card: CardVolume, ignoringManual: Bool = false) -> String {
         guard let s = assignments[card.key] else { return "" }
         let label = labelFor(source: s)
+        if !ignoringManual, let n = cardNumbers[card.key] {
+            let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: label, cardNumber: n)
+            return String(plan.display.split(separator: "/").last ?? "")
+        }
         let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: label)
         let name = String(plan.display.split(separator: "/").last ?? "")
         // Autres cartes de la même source, placées avant celle-ci et pas encore copiées : numéros suivants
@@ -595,9 +626,9 @@ final class AppState: ObservableObject {
     // MARK: - File d'attente des cartes
 
     func enqueue(_ url: URL, force: Bool = false, scoped: Bool = false,
-                 label: String? = nil, day: String? = nil, project: String? = nil) {
+                 label: String? = nil, day: String? = nil, project: String? = nil, cardNumber: Int? = nil) {
         guard !queue.contains(where: { $0.url == url }) else { return }
-        queue.append(QueueItem(url: url, force: force, scoped: scoped, label: label, day: day, project: project))
+        queue.append(QueueItem(url: url, force: force, scoped: scoped, label: label, day: day, project: project, cardNumber: cardNumber))
         if busy { addLog("En file d'attente : \(url.lastPathComponent)") }
         startNext()
     }
@@ -623,6 +654,10 @@ final class AppState: ObservableObject {
             if running.values.contains(where: { $0.label == label }) { i += 1; continue }
             queue.remove(at: i)
             item.label = label
+            if item.cardNumber == nil, item.label == labelForQueued(item.url),
+               let card = cards.first(where: { $0.url.path == item.url.path }) {
+                item.cardNumber = cardNumbers[card.key]
+            }
             item.day = item.day ?? day
             item.project = item.project ?? project
             launch(item)
@@ -648,7 +683,8 @@ final class AppState: ObservableObject {
         running[path] = RunningCopy(path: path, cardName: cardName(item.url), label: label)
         status = running.count > 1 ? "\(running.count) copies en cours" : "Copie en cours"
         let newJob = OffloadJob(source: item.url, destinations: destinationURLs(), project: item.project ?? project,
-                                label: label, day: item.day ?? day, force: item.force) { [weak self] ev in
+                                label: label, day: item.day ?? day, force: item.force,
+                                cardNumber: item.cardNumber) { [weak self] ev in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.handle(ev, path: path) }
             }
@@ -690,7 +726,8 @@ final class AppState: ObservableObject {
             label = assignments[card.key].map { labelFor(source: $0) }
         }
         let scoped = r.source.startAccessingSecurityScopedResource()
-        enqueue(r.source, force: true, scoped: scoped, label: label, day: saved?.day, project: saved?.project)
+        enqueue(r.source, force: true, scoped: scoped, label: label, day: saved?.day, project: saved?.project,
+                cardNumber: saved?.cardNumber)
     }
 
     /// « Recommencer » : même carte, même source, même jour, même projet.
@@ -699,12 +736,12 @@ final class AppState: ObservableObject {
         guard FileManager.default.fileExists(atPath: f.source.path) else {
             failure = CopyFailure(title: "Carte introuvable",
                                   message: "La carte « \(f.source.lastPathComponent) » n'est plus branchée. Rebranche-la, puis clique « Recommencer ».",
-                                  source: f.source, label: f.label, day: f.day, project: f.project)
+                                  source: f.source, label: f.label, day: f.day, project: f.project, cardNumber: f.cardNumber)
             return
         }
         addLog("Nouvelle tentative : \(f.source.lastPathComponent)")
         let scoped = f.source.startAccessingSecurityScopedResource()
-        enqueue(f.source, force: true, scoped: scoped, label: f.label, day: f.day, project: f.project)
+        enqueue(f.source, force: true, scoped: scoped, label: f.label, day: f.day, project: f.project, cardNumber: f.cardNumber)
     }
 
     private func handle(_ ev: OffloadEvent, path: String) {
@@ -779,7 +816,8 @@ final class AppState: ObservableObject {
                                   source: r.source,
                                   label: item?.label ?? "CamA",
                                   day: item?.day ?? day,
-                                  project: item?.project ?? project)
+                                  project: item?.project ?? project,
+                                  cardNumber: item?.cardNumber)
         }
         if running.isEmpty { refresh() }
         refreshCards()

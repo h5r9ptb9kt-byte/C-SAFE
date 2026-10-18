@@ -143,6 +143,17 @@ let sigB = OffloadJob.signature(try! OffloadJob.scan(cardB)), sigC = OffloadJob.
 check(histAll[sigB] != nil && histAll[sigC] != nil, "historique complet après copies simultanées")
 check(maxRSSMB() < 400, String(format: "mémoire stable avec 2 copies simultanées (%.0f Mo)", maxRSSMB()))
 
+// 6. Numéro de carte choisi à la main : la n°2 copiée avant la n°1 reste dans l'ordre
+let cardN2 = makeCard("CARTE_N2", mb: 50), cardN1 = makeCard("CARTE_N1", mb: 40)
+var rN2: OffloadResult?, rN1: OffloadResult?
+OffloadJob(source: cardN2, destinations: [d1, d2], project: "Tournage été", label: "CamD_FX5", day: "J1_2026-10-18",
+           force: false, cardNumber: 2) { ev in if case .finished(let r) = ev { rN2 = r } }.run()
+let usedAfter2 = Naming.usedCardNumbers(destinations: [d1, d2], project: "Tournage été", day: "J1_2026-10-18", label: "CamD_FX5")
+OffloadJob(source: cardN1, destinations: [d1, d2], project: "Tournage été", label: "CamD_FX5", day: "J1_2026-10-18",
+           force: false, cardNumber: 1) { ev in if case .finished(let r) = ev { rN1 = r } }.run()
+check(rN2?.display.hasSuffix("CamD_FX5_Carte02") == true && rN1?.display.hasSuffix("CamD_FX5_Carte01") == true && usedAfter2 == [2],
+      "carte n°2 copiée avant la n°1 : \(rN2?.display ?? "?") puis \(rN1?.display ?? "?")")
+
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")
 let pj = dz.appendingPathComponent("Film")

@@ -211,9 +211,25 @@ enum Naming {
         let merge: Bool      // true = copie directe dans un dossier existant (SON)
     }
 
-    static func plan(destinations: [URL], project: String, day: String, label: String) -> Plan {
+    /// `cardNumber` : numéro de carte choisi à la main (ordre de tournage) ; nil = automatique (suivant).
+    static func plan(destinations: [URL], project: String, day: String, label: String, cardNumber: Int? = nil) -> Plan {
         let proj = sanitize(project)
         let dayDirs = destinations.map { $0.appendingPathComponent(proj).appendingPathComponent(day) }
+
+        if let n = cardNumber, n >= 1 {
+            if isHF(label) || label == "SON" {
+                let sonDirs = dayDirs.map { $0.appendingPathComponent("SON") }
+                if n == 1 {
+                    if label == "SON" { return Plan(targets: sonDirs, display: "\(day)/SON", merge: true) }
+                    return Plan(targets: sonDirs.map { $0.appendingPathComponent(label) }, display: "\(day)/SON/\(label)", merge: false)
+                }
+                let name = String(format: "%@_Carte%02d", label, n)
+                return Plan(targets: sonDirs.map { $0.appendingPathComponent(name) }, display: "\(day)/SON/\(name)", merge: false)
+            }
+            let name = String(format: "%@_Carte%02d", label, n)
+            return Plan(targets: dayDirs.map { $0.appendingPathComponent(label).appendingPathComponent(name) },
+                        display: "\(day)/\(label)/\(name)", merge: false)
+        }
 
         if isHF(label) {
             let sonDirs = dayDirs.map { $0.appendingPathComponent("SON") }
@@ -241,6 +257,27 @@ enum Naming {
         let n = nextNumber(in: camDirs, pattern: "^\(esc)_Carte([0-9]+)$")
         let name = String(format: "%@_Carte%02d", label, n)
         return Plan(targets: camDirs.map { $0.appendingPathComponent(name) }, display: "\(day)/\(label)/\(name)", merge: false)
+    }
+
+    /// Numéros de carte déjà copiés pour une source ce jour-là (pour les signaler / bloquer)
+    static func usedCardNumbers(destinations: [URL], project: String, day: String, label: String) -> Set<Int> {
+        let dayDirs = destinations.map { $0.appendingPathComponent(sanitize(project)).appendingPathComponent(day) }
+        let esc = NSRegularExpression.escapedPattern(for: label)
+        var used = Set<Int>()
+        for d in dayDirs {
+            if label == "SON" || isHF(label) {
+                let son = d.appendingPathComponent("SON")
+                if label == "SON" ? sonOccupied(son) : isDir(son.appendingPathComponent(label)) { used.insert(1) }
+                for name in list(son) where !name.contains("_INCOMPLET") {
+                    if let c = firstCapture("^\(esc)_Carte([0-9]+)$", in: name), let n = Int(c) { used.insert(n) }
+                }
+            } else {
+                for name in list(d.appendingPathComponent(label)) where !name.contains("_INCOMPLET") {
+                    if let c = firstCapture("^\(esc)_Carte([0-9]+)$", in: name), let n = Int(c) { used.insert(n) }
+                }
+            }
+        }
+        return used
     }
 
     // MARK: - Sources déjà déchargées ce jour-là

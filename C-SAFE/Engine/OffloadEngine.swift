@@ -129,6 +129,7 @@ final class OffloadJob {
     let label: String
     let day: String
     let force: Bool
+    let cardNumber: Int?
     let cancel = CancelFlag()
     private let emit: (OffloadEvent) -> Void
     private var mergeTops: Set<String>?
@@ -137,7 +138,8 @@ final class OffloadJob {
     private let fm = FileManager.default
 
     init(source: URL, destinations: [URL], project: String, label: String, day: String,
-         force: Bool, emit: @escaping (OffloadEvent) -> Void) {
+         force: Bool, cardNumber: Int? = nil, emit: @escaping (OffloadEvent) -> Void) {
+        self.cardNumber = cardNumber
         self.source = source
         self.destinations = destinations
         self.project = project
@@ -218,7 +220,10 @@ final class OffloadJob {
         }
 
         // Où va la carte ?
-        let plan = Naming.plan(destinations: destinations, project: project, day: day, label: label)
+        let plan = Naming.plan(destinations: destinations, project: project, day: day, label: label, cardNumber: cardNumber)
+        if plan.merge, plan.targets.contains(where: Naming.sonOccupied) {
+            throw OffloadError(message: "la carte son n°1 de ce jour est déjà copiée (dossier SON). Choisis un autre numéro.")
+        }
         let shortName = plan.display.split(separator: "/", maxSplits: 1).last.map(String.init) ?? plan.display
         if plan.merge {
             mergeTops = Set(files.map { String($0.rel.split(separator: "/").first ?? "") })
