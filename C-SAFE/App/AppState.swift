@@ -269,7 +269,7 @@ final class AppState: ObservableObject {
             let free = sources.filter { !done.contains($0) && !taken.contains($0) }
             if c.kind == "Son (WAV)", free.contains("SON") {
                 assignments[c.key] = "SON"
-            } else if let s = free.first(where: { !Naming.isSound(Naming.label(source: $0)) }) ?? free.first {
+            } else if let s = free.first(where: { Self.isCamLetter($0) }) ?? free.first(where: { !Naming.isSound(Naming.label(source: $0)) }) ?? free.first {
                 assignments[c.key] = s
             }
         }
@@ -316,7 +316,7 @@ final class AppState: ObservableObject {
         }
         let taken = Set(assignments.filter { $0.key != card.key }.map(\.value))
         if let target = sources.first(where: {
-            !Naming.isSound(Naming.label(source: $0)) && !done.contains($0) && !taken.contains($0) && lockedType($0) == nil
+            Self.isCamLetter($0) && !done.contains($0) && !taken.contains($0) && lockedType($0) == nil
         }) {
             camTypes[target] = t
             assign(target, to: card)
@@ -329,8 +329,22 @@ final class AppState: ObservableObject {
     /// Sources proposées pour une carte : toutes sauf celles attribuées à une autre carte
     /// Toutes les sources restent proposées (deux cartes de la même caméra sont possibles) ;
     /// celles déjà copiées ce jour sont rangées dans « carte suivante ».
+    /// Les lettres de caméra suivent l'ordre A, B, C… sans trou : seule la première lettre libre
+    /// est proposée (on ne peut pas faire CamD tant que CamB et CamC n'existent pas).
     func sourceChoices(for card: CardVolume) -> (fresh: [String], doneToday: [String]) {
-        (sources.filter { !done.contains($0) }, sources.filter { done.contains($0) })
+        let mine = assignments[card.key]
+        let taken = Set(assignments.filter { $0.key != card.key }.map(\.value))
+        let nextLetter = sources.first { Self.isCamLetter($0) && !done.contains($0) && !taken.contains($0) }
+        let fresh = sources.filter { s in
+            guard !done.contains(s) else { return false }
+            guard Self.isCamLetter(s) else { return true }
+            return s == mine || s == nextLetter
+        }
+        return (fresh, sources.filter { done.contains($0) })
+    }
+
+    static func isCamLetter(_ s: String) -> Bool {
+        Naming.label(source: s).range(of: #"^Cam[A-Z]$"#, options: .regularExpression) != nil
     }
 
     /// Numéro de carte : nil = automatique (le suivant)
