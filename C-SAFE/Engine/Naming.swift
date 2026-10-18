@@ -280,6 +280,30 @@ enum Naming {
         return used
     }
 
+    /// Numéros des cartes déjà copiées pour une source ce jour-là, quel que soit le type de caméra
+    static func doneCardNumbers(destinations: [URL], project: String, day: String, source: String) -> [Int] {
+        let base = label(source: source)          // « CamA », « SON », « HF2 », « Drone »
+        let esc = NSRegularExpression.escapedPattern(for: base)
+        var nums = Set<Int>()
+        for d in destinations {
+            let dayDir = d.appendingPathComponent(sanitize(project)).appendingPathComponent(day)
+            if isSound(base) {
+                let son = dayDir.appendingPathComponent("SON")
+                if base == "SON" ? sonOccupied(son) : isDir(son.appendingPathComponent(base)) { nums.insert(1) }
+                for name in list(son) where !name.contains("_INCOMPLET") {
+                    if let c = firstCapture("^\(esc)_Carte([0-9]+)$", in: name), let n = Int(c) { nums.insert(n) }
+                }
+            } else {
+                for camDir in list(dayDir) where camDir == base || camDir.hasPrefix(base + "_") {
+                    for name in list(dayDir.appendingPathComponent(camDir)) where !name.contains("_INCOMPLET") {
+                        if let c = firstCapture("_Carte([0-9]+)$", in: name), let n = Int(c) { nums.insert(n) }
+                    }
+                }
+            }
+        }
+        return nums.sorted()
+    }
+
     // MARK: - Sources déjà déchargées ce jour-là
 
     static func doneSources(destinations: [URL], project: String, day: String, sources: [String]) -> [String] {

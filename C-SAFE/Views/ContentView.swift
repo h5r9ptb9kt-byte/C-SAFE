@@ -206,7 +206,8 @@ struct ShootPanel: View {
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.muted)
                         ForEach(state.done, id: \.self) { s in
-                            Text("✓ \(s)")
+                            let nums = state.doneNumbers[s] ?? []
+                            Text(nums.isEmpty ? "✓ \(s)" : "✓ \(s) · n°" + nums.map(String.init).joined(separator: ", "))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(Theme.green)
                                 .padding(.horizontal, 6)

@@ -154,6 +154,9 @@ OffloadJob(source: cardN1, destinations: [d1, d2], project: "Tournage été", la
 check(rN2?.display.hasSuffix("CamD_FX5_Carte02") == true && rN1?.display.hasSuffix("CamD_FX5_Carte01") == true && usedAfter2 == [2],
       "carte n°2 copiée avant la n°1 : \(rN2?.display ?? "?") puis \(rN1?.display ?? "?")")
 
+check(Naming.doneCardNumbers(destinations: [d1, d2], project: "Tournage été", day: "J1_2026-10-18", source: "CamD") == [1, 2],
+      "pastille « CamD · n°1, 2 »")
+
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")
 let pj = dz.appendingPathComponent("Film")

@@ -100,6 +100,8 @@ final class AppState: ObservableObject {
     @Published private(set) var lastSuccess: Bool?
     @Published private(set) var log: [LogLine] = []
     @Published private(set) var done: [String] = []
+    /// Numéros des cartes déjà copiées par source (« CamA » → [1, 2])
+    @Published private(set) var doneNumbers: [String: [Int]] = [:]
     @Published private(set) var nextPreview = ""
     @Published private var duplicateQueue: [OffloadResult] = []
     var duplicatePrompt: OffloadResult? {
@@ -476,6 +478,9 @@ final class AppState: ObservableObject {
         let shift = dayPlan.shifted.map { DayShift(j: $0.j, date: $0.date) }
         if shift != dayShift { dayShift = shift }
         done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)
+        doneNumbers = Dictionary(uniqueKeysWithValues: done.map {
+            ($0, Naming.doneCardNumbers(destinations: urls, project: project, day: day, source: $0))
+        })
         nextPreview = "\(Naming.sanitize(project)) / \(day)"
     }
 
