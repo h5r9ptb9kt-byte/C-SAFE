@@ -294,6 +294,17 @@ final class AppState: ObservableObject {
         (sources.filter { !done.contains($0) }, sources.filter { done.contains($0) })
     }
 
+    /// « CamA — carte n°2 » : numéro de la prochaine carte de cette source ce jour-là
+    func nextCardText(for source: String) -> String {
+        let plan = Naming.plan(destinations: destinationURLs(), project: project, day: day, label: labelFor(source: source))
+        let name = String(plan.display.split(separator: "/").last ?? "")
+        if let r = name.range(of: #"_Carte([0-9]+)$"#, options: .regularExpression),
+           let n = Int(name[r].dropFirst("_Carte".count)) {
+            return "\(source) — carte n°\(n)"
+        }
+        return "\(source) — carte suivante"
+    }
+
     /// Dossier qui sera créé pour cette carte (« CamA_FX3_Carte02 », « SON », « HF2 »…)
     func previewFor(_ card: CardVolume) -> String {
         guard let s = assignments[card.key] else { return "" }

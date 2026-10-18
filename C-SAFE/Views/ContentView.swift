@@ -475,7 +475,7 @@ struct CardRow: View {
                                onRemove: { state.removeSource($0) },
                                extraTitle: "Déjà copiées ce jour — carte suivante",
                                extraItems: choices.doneToday,
-                               extraLabel: { "\($0) (carte suivante)" },
+                               extraLabel: { state.nextCardText(for: $0) },
                                onSelectExtra: { state.assign($0, to: card) })
                     let isSound = Naming.isSound(Naming.label(source: source))
                     ChoiceMenu(value: isSound ? "—" : state.typeFor(source: source),
