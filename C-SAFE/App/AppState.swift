@@ -527,6 +527,22 @@ final class AppState: ObservableObject {
     // MARK: - Mac : détection automatique des cartes
 
     #if os(macOS)
+    /// Suit les branchements / débranchements pour tenir la colonne source à jour.
+    private func observeVolumes() {
+        let nc = NSWorkspace.shared.notificationCenter
+        let mounted = nc.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] note in
+            guard let url = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
+            MainActor.assumeIsolated { self?.volumeMounted(url) }
+        }
+        let unmounted = nc.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshCards()
+                self?.refresh()
+            }
+        }
+        volumeObservers = [mounted, unmounted]
+    }
+
     private func isCandidate(_ volume: URL) -> Bool {
         let p = volume.standardizedFileURL.path
         if p == "/" { return false }
