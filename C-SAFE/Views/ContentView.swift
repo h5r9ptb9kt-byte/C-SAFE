@@ -142,13 +142,13 @@ struct StatusPill: View {
 
     private var text: String {
         if state.busy { return "Copie" }
-        if state.isMac { return state.watching ? "Copie auto" : "En pause" }
+        if state.isMac { return "Prêt" }
         return "Manuel"
     }
 
     private var color: Color {
         if state.busy { return Theme.orange }
-        if state.isMac { return state.watching ? Theme.green : Theme.muted }
+        if state.isMac { return Theme.green }
         return Theme.cyan
     }
 
@@ -660,14 +660,12 @@ struct CopyPanel: View {
 
             #if os(macOS)
             Button {
-                state.watching ? state.stopCopy() : state.startCopy()
+                state.startCopy()
             } label: {
-                Label(state.watching ? "Arrêter la copie automatique" : "Démarrer la copie",
-                      systemImage: state.watching ? "stop.circle.fill" : "play.circle.fill")
+                Label("Démarrer la copie", systemImage: "play.circle.fill")
             }
-            .buttonStyle(PrimaryButtonStyle(color: state.watching ? Theme.red : Theme.orange))
-            Text(state.watching ? "Chaque carte branchée est copiée, vérifiée puis éjectée."
-                                : "Rien n'est copié tant que tu n'as pas cliqué « Démarrer la copie ».")
+            .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
+            Text("Rien n'est copié tant que tu n'as pas cliqué « Démarrer la copie ». Chaque nouvelle carte attend ton clic.")
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.muted)
             HStack(spacing: 8) {

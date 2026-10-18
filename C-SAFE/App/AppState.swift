@@ -405,7 +405,8 @@ final class AppState: ObservableObject {
 
     /// Copie manuelle d'une carte de la colonne source
     /// Seul le bouton « Démarrer la copie » lance les copies :
-    /// toutes les cartes source pas encore copiées, puis (sur Mac) chaque carte branchée ensuite.
+    /// uniquement les cartes présentes à ce moment-là. Une carte branchée ensuite attend
+    /// qu'on la nomme et qu'on clique de nouveau : rien ne part jamais tout seul.
     func startCopy() {
         guard checkReady() else { return }
         let already = cards.filter { $0.previous != nil && running[$0.url.path] == nil }
@@ -418,14 +419,12 @@ final class AppState: ObservableObject {
                 && $0.previous == nil
                 && running[$0.url.path] == nil
         }
-        #if os(macOS)
-        watching = true
-        addLog(pending.isEmpty ? "Copie démarrée : branche une carte, elle sera copiée toute seule."
-                               : "Copie démarrée : \(pending.count) carte(s) en cours, les suivantes seront copiées dès leur branchement.")
-        if destinations.count < 2 { addLog("⚠ Un seul disque de sauvegarde : 2 sont recommandés.") }
-        #else
-        if pending.isEmpty { addLog("Choisis d'abord une carte.") }
-        #endif
+        if pending.isEmpty {
+            addLog("Aucune carte à copier : branche ou choisis une carte, nomme-la, puis clique « Démarrer la copie ».")
+        } else {
+            addLog("Copie démarrée : \(pending.count) carte(s).")
+            if destinations.count < 2 { addLog("⚠ Un seul disque de sauvegarde : 2 sont recommandés.") }
+        }
         pending.forEach { enqueue($0.url) }
         save()
     }
@@ -945,13 +944,12 @@ final class AppState: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, FileManager.default.fileExists(atPath: url.path) else { return }
                 self.refreshCards()
-                guard self.watching else { return }
+                // Jamais de copie automatique : la carte attend d'être nommée puis « Démarrer la copie »
                 if OffloadJob.looksLikeCameraCard(url) {
-                    self.addLog("Carte détectée : « \(url.lastPathComponent) »")
                     if let c = self.cards.first(where: { $0.url.path == url.path }), let prev = c.previous {
-                        self.duplicatePrompt = OffloadResult(ok: false, duplicate: true, message: prev.message, source: url)
+                        self.addLog("Carte détectée : « \(url.lastPathComponent) » — déjà copiée → \(prev.short)")
                     } else {
-                        self.enqueue(url)
+                        self.addLog("Carte détectée : « \(url.lastPathComponent) » — vérifie son nom puis clique « Démarrer la copie ».")
                     }
                 } else {
                     self.addLog("Volume « \(url.lastPathComponent) » ignoré (pas reconnu comme carte caméra). Utilise « Choisir une carte » si besoin.")
