@@ -18,8 +18,12 @@ CE QUE FAIT C-SAFE
   identiques à la carte, sans aucun fichier ajouté.
 - Noms compatibles avec Premiere, Resolve, Final Cut, Avid, Windows, exFAT et NAS :
   sans accent ni espace. Les fichiers de la carte ne sont jamais renommés.
-- Une source déjà copiée dans la journée disparaît de la liste.
-  Pour une 2e, 3e… carte : choisis-la dans « Déjà copiées — carte suivante ».
+- Chaque carte branchée reçoit sa source (CamA, SON…) et son type, réglables sur la
+  carte elle-même ; la carte son est reconnue toute seule. Pour une 2e, 3e… carte
+  d'une source déjà faite : « Déjà copiées ce jour — carte suivante ».
+- Copies simultanées : 1, 2 ou 3 cartes en même temps vers les mêmes disques
+  (SSD : 2-3 ; disque dur classique : 1 est souvent plus rapide). Progression et
+  bouton d'annulation sur chaque carte.
 - Reconnaît une carte déjà copiée par son contenu (même renommée, même dans un
   autre projet) et indique où et sur quel disque. En cas d'échec, le dossier est
   marqué « _INCOMPLET » : NE FORMATE PAS LA CARTE dans ce cas.
