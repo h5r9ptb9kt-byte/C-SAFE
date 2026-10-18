@@ -24,36 +24,18 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
+            #if os(macOS)
+            // Mac : la fenêtre prend exactement la taille du contenu (pas de barre de défilement)
+            panels
+                .frame(width: 470)
+                .fixedSize(horizontal: false, vertical: true)
+            #else
             ScrollView {
-                VStack(spacing: 8) {
-                    HeaderView()
-                        .alert(state.failure?.title ?? "",
-                               isPresented: Binding(get: { state.failure != nil }, set: { if !$0 { state.failure = nil } }),
-                               presenting: state.failure) { f in
-                            Button("Recommencer") { state.retry(f) }
-                            Button("Fermer", role: .cancel) { state.failure = nil }
-                        } message: { f in
-                            Text(f.message)
-                        }
-                    ShootPanel(askName: { nameRequest = $0; newName = "" })
-                    TransferPanel(onPickCard: { open(.card) }, onAddDestination: { open(.destination) })
-                    CopyPanel(onPickCard: { open(.card) })
-                    LogPanel()
-                }
-                .padding(10)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
+                panels
+                    .frame(maxWidth: 640)
+                    .frame(maxWidth: .infinity)
             }
-            .alert(nameRequest?.title ?? "", isPresented: Binding(get: { nameRequest != nil }, set: { if !$0 { nameRequest = nil } })) {
-                TextField(nameRequest?.hint ?? "", text: $newName)
-                Button("Ajouter") {
-                    if nameRequest == .source { state.addSource(newName) } else { state.addType(newName) }
-                    nameRequest = nil
-                }
-                Button("Annuler", role: .cancel) { nameRequest = nil }
-            } message: {
-                Text("Il restera dans la liste pour les prochaines fois.")
-            }
+            #endif
         }
         .preferredColorScheme(.dark)
         .tint(Theme.orange)
@@ -84,6 +66,35 @@ struct ContentView: View {
         .onChange(of: state.project) { state.refresh() }
         .onChange(of: state.shootDate) { state.refresh() }
         .onChange(of: state.extraCard) { state.refresh() }
+    }
+
+    private var panels: some View {
+        VStack(spacing: 8) {
+                    HeaderView()
+                        .alert(state.failure?.title ?? "",
+                               isPresented: Binding(get: { state.failure != nil }, set: { if !$0 { state.failure = nil } }),
+                               presenting: state.failure) { f in
+                            Button("Recommencer") { state.retry(f) }
+                            Button("Fermer", role: .cancel) { state.failure = nil }
+                        } message: { f in
+                            Text(f.message)
+                        }
+                    ShootPanel(askName: { nameRequest = $0; newName = "" })
+                        .alert(nameRequest?.title ?? "", isPresented: Binding(get: { nameRequest != nil }, set: { if !$0 { nameRequest = nil } })) {
+                        TextField(nameRequest?.hint ?? "", text: $newName)
+                        Button("Ajouter") {
+                        if nameRequest == .source { state.addSource(newName) } else { state.addType(newName) }
+                        nameRequest = nil
+                        }
+                        Button("Annuler", role: .cancel) { nameRequest = nil }
+                        } message: {
+                        Text("Il restera dans la liste pour les prochaines fois.")
+                        }
+                    TransferPanel(onPickCard: { open(.card) }, onAddDestination: { open(.destination) })
+                    CopyPanel(onPickCard: { open(.card) })
+                    LogPanel()
+                }
+        .padding(10)
     }
 
     private func open(_ target: ImportTarget) {
@@ -638,6 +649,7 @@ struct LogPanel: View {
             .buttonStyle(.plain)
 
             if expanded {
+                ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(state.log.suffix(40).reversed()) { line in
                         HStack(alignment: .top, spacing: 6) {
@@ -650,6 +662,9 @@ struct LogPanel: View {
                     }
                 }
                 .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 150)
             }
         }
         .padding(8)

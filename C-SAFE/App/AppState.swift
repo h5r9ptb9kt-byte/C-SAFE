@@ -559,7 +559,7 @@ final class AppState: ObservableObject {
                 explanation = "La copie de « \(card) » a été arrêtée avant la fin. Les fichiers déjà copiés sont rangés dans un dossier « _INCOMPLET »."
             } else if r.verifyFailed {
                 title = "Copie incomplète"
-                explanation = "La vérification a trouvé des fichiers manquants ou différents sur au moins un disque (détail dans le journal et dans _Rapports)."
+                explanation = "La vérification a trouvé des fichiers manquants ou différents sur au moins un disque (détail dans le journal et dans Rapports_de_copie)."
             } else {
                 title = "La copie a échoué"
                 explanation = "\(r.message.replacingOccurrences(of: "Erreur : ", with: "").capitalizedFirst)\nVérifie que la carte et les disques sont bien branchés."

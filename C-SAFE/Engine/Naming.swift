@@ -14,7 +14,8 @@ enum Naming {
     static let defaultTypes = ["FX2", "FX3", "FX5", "Osmo 4P", "360", "Drone", "GoPro"]
     static let defaultSources = ["CamA", "CamB", "CamC", "CamD", "CamE", "CamF", "CamG", "CamH",
                                  "SON", "HF1", "HF2", "HF3", "HF4"]
-    static let reportDir = "_Rapports"
+    /// Nom sans « _ » initial : il se range toujours après J1, J2, J3… dans le Finder
+    static let reportDir = "Rapports_de_copie"
     static let historyFile = "historique_cartes.json"
 
     // MARK: - Noms sûrs

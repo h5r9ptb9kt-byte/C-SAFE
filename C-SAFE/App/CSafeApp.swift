@@ -14,12 +14,9 @@ struct CSafeApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(state)
-                #if os(macOS)
-                .frame(minWidth: 360, minHeight: 420)
-                #endif
         }
         #if os(macOS)
-        .defaultSize(width: 470, height: 720)
+        .windowResizability(.contentSize)   // la fenêtre s'ouvre pile à la taille du contenu
         #endif
     }
 }

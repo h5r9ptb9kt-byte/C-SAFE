@@ -9,17 +9,19 @@ CE QUE FAIT C-SAFE
       <Disque>/<Projet>/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01/
       <Disque>/<Projet>/J1_2026-10-18/SON/         (enregistreur, copié directement)
       <Disque>/<Projet>/J1_2026-10-18/SON/HF1, HF3… (HF au choix, dans l'ordre que tu veux)
-      <Disque>/<Projet>/_Rapports/
+      <Disque>/<Projet>/Rapports_de_copie/    (rapports, .md5, .mhl — toujours après les jours)
 - Jour de tournage J1, J2, J3… ajouté au dossier de la date. C-SAFE reprend le J
   déjà utilisé pour cette date, propose sinon le suivant, et bloque (cadenas) les J
   déjà pris par un autre jour. « Sans numéro de jour » reste possible.
 - Vérifie chaque fichier sur chaque disque (MD5) et ajoute un fichier .mhl
-  (standard cinéma relu par Silverstack, ShotPut, Hedge, DaVinci Resolve).
+  (standard cinéma) rangé dans Rapports_de_copie : les dossiers de cartes restent
+  identiques à la carte, sans aucun fichier ajouté.
 - Noms compatibles avec Premiere, Resolve, Final Cut, Avid, Windows, exFAT et NAS :
   sans accent ni espace. Les fichiers de la carte ne sont jamais renommés.
 - Une source déjà copiée dans la journée disparaît de la liste.
   Pour une 2e, 3e… carte : choisis-la dans « Déjà copiées — carte suivante ».
-- Prévient si une carte a déjà été copiée. En cas d'échec, le dossier est
+- Reconnaît une carte déjà copiée par son contenu (même renommée, même dans un
+  autre projet) et indique où et sur quel disque. En cas d'échec, le dossier est
   marqué « _INCOMPLET » : NE FORMATE PAS LA CARTE dans ce cas.
 - Sources (CamA…CamH, SON, HF1…HF4) et types (FX2, FX3, FX5, Osmo 4P, 360,
   Drone, GoPro) personnalisables avec « Autre… ».

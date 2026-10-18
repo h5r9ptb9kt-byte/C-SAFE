@@ -69,13 +69,33 @@ check(r1.display == "J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01", "nom du dossier (
 check(maxRSSMB() < 400, String(format: "mémoire stable (%.0f Mo max, limite 400 Mo)", maxRSSMB()))
 let copied = d2.appendingPathComponent("Tournage-ete/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01/PRIVATE/M4ROOT/CLIP/C0002.MP4")
 check(fm.fileExists(atPath: copied.path), "arborescence caméra conservée sur le disque 2")
-let mhl = (try? fm.contentsOfDirectory(atPath: copied.deletingLastPathComponent().deletingLastPathComponent()
-    .deletingLastPathComponent().deletingLastPathComponent().path))?.contains { $0.hasSuffix(".mhl") } ?? false
-check(mhl, "fichier .mhl présent")
+let cardFolder = d2.appendingPathComponent("Tournage-ete/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01")
+let inCard = (try? fm.contentsOfDirectory(atPath: cardFolder.path)) ?? []
+check(inCard == ["PRIVATE"], "dossier de carte identique à la carte, aucun fichier ajouté (\(inCard))")
+let reports = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []
+check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuffix(".md5") } && reports.contains { $0.hasSuffix("_rapport.txt") },
+      "rapports et .mhl dans Rapports_de_copie (\(reports.count) fichiers)")
+let projectItems = ((try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete").path)) ?? []).sorted()
+check(projectItems.last == "Rapports_de_copie", "Rapports_de_copie rangé après les jours (\(projectItems))")
+
+let srcDate = (try? fm.attributesOfItem(atPath: clips.path))?[.modificationDate] as? Date
+let dstDate = (try? fm.attributesOfItem(atPath: cardFolder.appendingPathComponent("PRIVATE/M4ROOT/CLIP").path))?[.modificationDate] as? Date
+check(srcDate != nil && srcDate == dstDate, "dossiers copiés avec leur date d'origine")
 
 // 2. Même carte rebranchée → doublon signalé
 let r2 = run()
 check(r2.duplicate, "carte déjà copiée détectée")
+print("RESULTAT message doublon : \(r2.message)")
+check(r2.message.contains("CamA_FX3_Carte01") && r2.message.contains("disque"), "le message dit où et sur quel disque")
+// même carte renommée → toujours reconnue (par le contenu et le poids des fichiers)
+let renamed = base.appendingPathComponent("Untitled")
+try! fm.moveItem(at: card, to: renamed)
+var r2b: OffloadResult?
+OffloadJob(source: renamed, destinations: [d1, d2], project: "Autre projet", label: "CamB_FX5", day: "J2_2026-10-19", force: false) { ev in
+    if case .finished(let r) = ev { r2b = r }
+}.run()
+check(r2b?.duplicate == true, "carte renommée, autre projet et autre jour : toujours reconnue")
+try! fm.moveItem(at: renamed, to: card)
 
 // 3. Copie mise à la corbeille sur les deux disques → plus de doublon, numéro 01 réutilisé
 for d in [d1, d2] {

@@ -178,21 +178,11 @@ final class OffloadJob {
             try fm.createDirectory(at: pd.appendingPathComponent(Naming.reportDir), withIntermediateDirectories: true)
         }
 
-        // Doublon ?
-        let sig = Self.signature(files, cardName)
-        if !force {
-            for pd in projectDirs {
-                var hist = History.load(pd)
-                guard let entry = hist[sig] else { continue }
-                // La copie existe-t-elle encore ? Si elle a été mise à la corbeille, on l'oublie.
-                if Self.copyStillExists(projectDir: pd, display: entry["dossier"] ?? "") {
-                    return OffloadResult(ok: false, duplicate: true,
-                                         message: "Cette carte a déjà été déchargée : \(entry["dossier"] ?? "?")",
-                                         source: source)
-                }
-                hist[sig] = nil
-                History.save(pd, hist)
-            }
+        // Doublon ? La carte est reconnue par son contenu (liste et poids de chaque fichier),
+        // quel que soit son nom, dans tous les projets présents sur les disques de destination.
+        let sig = Self.signature(files)
+        if !force, let dup = Self.findPreviousCopy(signature: sig, destinations: destinations) {
+            return OffloadResult(ok: false, duplicate: true, message: dup, source: source)
         }
 
         // Espace libre, regroupé par disque physique
@@ -302,6 +292,25 @@ final class OffloadJob {
             hashes[f.rel] = Self.hex(hasher.finalize())
         }
         progress("Copie", total, total, since: copyStart, force: true)
+
+        // Les dossiers gardent aussi leur date d'origine (comme sur la carte)
+        var relDirs = Set<String>()
+        for f in files {
+            var parts = f.rel.split(separator: "/").dropLast()
+            while !parts.isEmpty {
+                relDirs.insert(parts.joined(separator: "/"))
+                parts = parts.dropLast()
+            }
+        }
+        for rel in relDirs.sorted(by: { $0.count > $1.count }) {
+            guard let a = try? fm.attributesOfItem(atPath: source.appendingPathComponent(rel).path) else { continue }
+            var keep: [FileAttributeKey: Any] = [:]
+            if let m = a[.modificationDate] { keep[.modificationDate] = m }
+            if let c = a[.creationDate] { keep[.creationDate] = c }
+            for t in plan.targets where !keep.isEmpty {
+                try? fm.setAttributes(keep, ofItemAtPath: t.appendingPathComponent(rel).path)
+            }
+        }
         let copySeconds = Date().timeIntervalSince(t0)
 
         // ---- Vérification : chaque disque relu en parallèle ----
@@ -359,7 +368,6 @@ final class OffloadJob {
         let end = Date()
         let elapsed = end.timeIntervalSince(t0)
         let speed = copySeconds > 0 ? Double(total) / copySeconds : 0
-        if allOK { writeMHL(targets: plan.targets, files: files, hashes: hashes, start: t0, end: end) }
 
         let md5Text = files.map { "\(hashes[$0.rel] ?? "")  \($0.rel)\n" }.joined()
         var report: [String] = [
@@ -388,6 +396,10 @@ final class OffloadJob {
         for f in files { report.append("  \(hashes[f.rel] ?? "")  \(Self.human(f.size))  \(f.rel)") }
         let reportText = report.joined(separator: "\n") + "\n"
         let reportName = "\(day)_\(plan.targets[0].lastPathComponent)"
+        if allOK {
+            writeMHL(projectDirs: projectDirs, targets: plan.targets, display: plan.display, reportName: reportName,
+                     files: files, hashes: hashes, start: t0, end: end)
+        }
 
         for pd in projectDirs {
             let rd = pd.appendingPathComponent(Naming.reportDir)
@@ -396,7 +408,8 @@ final class OffloadJob {
                 try reportText.write(to: rd.appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
                 if allOK {
                     var h = History.load(pd)
-                    h[sig] = ["dossier": plan.display, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"), "label": cardName]
+                    h[sig] = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
+                              "label": cardName, "taille": Self.human(total), "fichiers": "\(files.count)"]
                     History.save(pd, h)
                 }
             } catch {
@@ -448,12 +461,15 @@ final class OffloadJob {
 
     // MARK: MHL 1.1 (standard DIT : Silverstack, ShotPut, Hedge, YoYotta, Resolve…)
 
-    private func writeMHL(targets: [URL], files: [CardFile], hashes: [String: String], start: Date, end: Date) {
+    /// Écrit le .mhl dans Rapports_de_copie (chemins relatifs « ../J1_…/CamA_…/… ») :
+    /// les dossiers de cartes restent identiques à la carte, sans aucun fichier ajouté.
+    private func writeMHL(projectDirs: [URL], targets: [URL], display: String, reportName: String,
+                          files: [CardFile], hashes: [String: String], start: Date, end: Date) {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
         iso.timeZone = TimeZone(identifier: "UTC")
         let stamp = Self.stamp(end, "yyyy-MM-dd_HHmmss")
-        for dd in targets {
+        for (pd, dd) in zip(projectDirs, targets) {
             var lines = [
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
                 "<hashlist version=\"1.1\">",
@@ -470,7 +486,7 @@ final class OffloadJob {
                 let mod = (try? fm.attributesOfItem(atPath: p.path))?[.modificationDate] as? Date ?? end
                 lines += [
                     "  <hash>",
-                    "    <file>\(Self.xml(f.rel))</file>",
+                    "    <file>\(Self.xml("../\(display)/\(f.rel)"))</file>",
                     "    <size>\(f.size)</size>",
                     "    <lastmodificationdate>\(iso.string(from: mod))</lastmodificationdate>",
                     "    <md5>\(hashes[f.rel] ?? "")</md5>",
@@ -479,7 +495,7 @@ final class OffloadJob {
                 ]
             }
             lines.append("</hashlist>")
-            let url = dd.appendingPathComponent("\(dd.lastPathComponent)_\(stamp).mhl")
+            let url = pd.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(reportName)_\(stamp).mhl")
             do {
                 try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
             } catch {
@@ -506,6 +522,42 @@ final class OffloadJob {
             if !more { break }
         }
         return Self.hex(hasher.finalize())
+    }
+
+    /// Cherche si cette carte a déjà été copiée (encore présente sur un disque).
+    /// Retourne le message à afficher, ou nil. Les copies mises à la corbeille sont oubliées.
+    static func findPreviousCopy(signature sig: String, destinations: [URL]) -> String? {
+        var disks: [String] = []
+        var entry: [String: String]?
+        for d in destinations {
+            for proj in Naming.list(d) where !proj.hasPrefix(".") {
+                let pd = d.appendingPathComponent(proj)
+                guard Naming.isDir(pd) else { continue }
+                var hist = History.load(pd)
+                guard let e = hist[sig] else { continue }
+                if copyStillExists(projectDir: pd, display: e["dossier"] ?? "") {
+                    let disk = (try? d.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? d.lastPathComponent
+                    if !disks.contains(disk) { disks.append(disk) }
+                    var full = e
+                    full["projet"] = full["projet"] ?? proj
+                    entry = entry ?? full
+                } else {
+                    hist[sig] = nil
+                    History.save(pd, hist)
+                }
+            }
+        }
+        guard let e = entry else { return nil }
+        var when = ""
+        if let date = e["date"], date.count >= 16 {
+            let p = date.prefix(10).split(separator: "-")
+            if p.count == 3 { when = " le \(p[2])/\(p[1]) à \(date.dropFirst(11).prefix(5))" }
+        }
+        let path = ([e["projet"] ?? ""] + (e["dossier"] ?? "").split(separator: "/").map(String.init))
+            .filter { !$0.isEmpty }.joined(separator: " / ")
+        let size = e["taille"].map { " (\($0))" } ?? ""
+        let on = disks.count == 1 ? "sur le disque \(disks[0])" : "sur les disques \(disks.joined(separator: " et "))"
+        return "Cette carte\(size) a déjà été copiée\(when) dans \(path), \(on)."
     }
 
     /// Une copie enregistrée dans l'historique est-elle toujours sur ce disque ?
@@ -590,9 +642,10 @@ final class OffloadJob {
         return false
     }
 
-    static func signature(_ files: [CardFile], _ cardName: String) -> String {
+    /// Empreinte de la carte : liste des fichiers et poids de chacun (indépendante du nom de la carte).
+    static func signature(_ files: [CardFile]) -> String {
         var h = Insecure.MD5()
-        h.update(data: Data(cardName.utf8))
+        h.update(data: Data("csafe-v2\n".utf8))
         for f in files { h.update(data: Data("\(f.rel)|\(f.size)\n".utf8)) }
         return hex(h.finalize())
     }
