@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Installer C-SAFE sur iPhone</title>
+<style>
+@page { size: A4; margin: 12mm; }
+:root{--bg:#0F1924;--panel:#172636;--orange:#E8742A;--cyan:#2A9FD6;--green:#3CCB8F;--red:#E5534B;--cream:#F1EAD6;--muted:#8FA6BD;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,"Helvetica Neue","Inter","DejaVu Sans",Arial,sans-serif;color:#1d2733;margin:0;font-size:11.5pt;line-height:1.42}
+header{background:var(--bg);color:var(--cream);border-radius:14px;padding:16px 22px;display:flex;align-items:center;gap:18px}
+header img{width:66px;height:66px}
+header h1{margin:0;font-size:22pt}
+header h1 span{color:var(--orange)}
+header p{margin:4px 0 0;color:var(--muted);font-size:10pt}
+.intro{margin:12px 0 4px;padding:10px 14px;border-left:4px solid var(--cyan);background:#eef6fb;border-radius:6px}
+.need{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 4px}
+.need div{background:#f4f6f8;border-radius:10px;padding:8px 10px;font-size:9.5pt;text-align:center}
+.need b{display:block;font-size:16pt;margin-bottom:2px}
+h2.part{margin:16px 0 4px;font-size:12pt;color:#b4521a;letter-spacing:.5px;text-transform:uppercase}
+.step{display:flex;gap:12px;margin:12px 0;page-break-inside:avoid}
+.num{flex:0 0 30px;height:30px;border-radius:50%;background:var(--orange);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:12.5pt}
+.body{flex:1}
+.body h3{margin:3px 0 3px;font-size:12.5pt}
+.body p{margin:0 0 5px}
+b.o{color:var(--orange)}
+.warn{color:var(--red);font-weight:700}
+.row{display:flex;gap:14px;align-items:flex-start}
+.row>div:first-child{flex:1}
+.box{border-radius:10px;padding:9px 13px;margin:10px 0;page-break-inside:avoid;font-size:10.5pt}
+.ok{background:#e9f8f1;border:1px solid #bfe9d5}
+.tip{background:#fff6ee;border:1px solid #f4d2b6}
+.pb{page-break-before:always}
+.path{display:inline-block;background:#f1f4f7;border-radius:6px;padding:1px 7px;font-weight:600;font-size:10.5pt}
+/* schémas iOS */
+.ios{width:230px;flex:0 0 230px;background:#f2f2f7;border-radius:22px;padding:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);font-size:9.5pt}
+.ios .t{font-weight:700;font-size:11pt;margin:2px 4px 8px}
+.ios .g{background:#fff;border-radius:11px;overflow:hidden;margin-bottom:8px}
+.ios .r{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #e5e5ea}
+.ios .r:last-child{border-bottom:0}
+.ios .hl{outline:3px solid var(--orange);outline-offset:-3px;border-radius:9px}
+.sw{width:34px;height:20px;border-radius:10px;background:#34c759;position:relative}
+.sw:after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.btn{display:inline-block;background:#007aff;color:#fff;border-radius:8px;padding:3px 10px;font-weight:600;font-size:9pt}
+.btn.g{background:#e5e5ea;color:#007aff}
+.cap{font-size:8.5pt;color:#7b8a99;text-align:center;margin-top:3px}
+.shot{width:200px;flex:0 0 200px;border-radius:22px;box-shadow:0 2px 12px rgba(0,0,0,.25)}
+code{font-family:Menlo,"DejaVu Sans Mono",monospace;font-size:9pt;background:#1d2733;color:#F1EAD6;padding:5px 8px;border-radius:6px;display:block;margin:4px 0;word-break:break-all}
+</style></head><body>
+
+<header>
+  <img src="icon.png">
+  <div><h1>C-SAFE sur <span>iPhone et iPad</span></h1>
+  <p>Installation gratuite, sans App Store · par C-FOCUS · iPhone ou iPad avec iOS 26 conseillé</p></div>
+</header>
+
+<div class="intro">On installe C-SAFE avec <b>SideStore</b>, un outil gratuit qui signe l'app avec ton
+<b>identifiant Apple</b>. Une seule installation avec un ordinateur (environ 20 minutes), puis
+l'iPhone se débrouille seul : la signature est renouvelée <b>automatiquement chaque nuit</b>.</div>
+
+<div class="need">
+  <div><b>📱</b>iPhone ou iPad avec un code de verrouillage</div>
+  <div><b>💻</b>Un Mac ou un PC, une seule fois</div>
+  <div><b>📶</b>Wi-Fi (pas la 4G/5G)</div>
+  <div><b>🍏</b>Ton identifiant Apple (gratuit)</div>
+</div>
+
+<h2 class="part">A · Sur l'iPhone</h2>
+
+<div class="step"><div class="num">1</div><div class="body">
+<h3>Installe LocalDevVPN depuis l'App Store</h3>
+<p>Ouvre l'app, touche <b class="o">Connect</b>, puis <b>Autoriser</b> et tape ton code. Ce « VPN » reste dans
+l'iPhone, rien ne passe par Internet. Il permet à SideStore de signer les apps. <b>Laisse-le connecté.</b></p>
+</div></div>
+
+<h2 class="part">B · Sur l'ordinateur (une seule fois)</h2>
+
+<div class="step"><div class="num">2</div><div class="body">
+<h3>Installe iloader</h3>
+<p>Télécharge-le sur <b>iloader.app</b>. Sur Mac, ouvre le .dmg et glisse iloader dans Applications.
+Sur PC, installe d'abord iTunes, puis iloader.</p>
+</div></div>
+
+<div class="step"><div class="num">3</div><div class="body">
+<h3>Branche l'iPhone et installe SideStore</h3>
+<p>Branche l'iPhone en USB et touche <b>Se fier</b> sur l'iPhone. Dans iloader : connecte-toi avec ton
+identifiant Apple, choisis ton iPhone, puis <b class="o">SideStore (Stable)</b>. Compte 2 à 5 minutes.</p>
+</div></div>
+
+<h2 class="part">C · Autoriser SideStore sur l'iPhone</h2>
+
+<div class="step"><div class="num">4</div><div class="body"><div class="row"><div>
+<h3>Fais confiance à ton identifiant</h3>
+<p><span class="path">Réglages › Général › VPN et gestion de l'appareil</span>, puis touche ton identifiant
+Apple, ensuite <b class="o">Se fier</b>.</p>
+<h3 style="margin-top:12px">Active le mode développeur</h3>
+<p><span class="path">Réglages › Confidentialité et sécurité › Mode développeur</span>, tout en bas. L'iPhone
+redémarre. Touche ensuite <b class="o">Activer</b> et tape ton code.</p>
+</div>
+<div><div class="ios"><div class="t">Confidentialité et sécurité</div>
+  <div class="g"><div class="r">Sécurité de l'appareil volé<span style="color:#8e8e93">Activée ›</span></div><div class="r">Mode Isolement<span style="color:#8e8e93">Non ›</span></div></div>
+  <div class="g hl"><div class="r"><b>Mode développeur</b><span class="sw"></span></div></div>
+</div><div class="cap">Schéma, l'écran réel peut légèrement varier</div></div>
+</div></div></div>
+
+<div class="step"><div class="num">5</div><div class="body">
+<h3>Ouvre SideStore et connecte-toi</h3>
+<p>Vérifie que LocalDevVPN est connecté. Ouvre SideStore et connecte-toi avec <b>le même identifiant Apple</b>.
+Dans l'onglet <b>Mes apps</b>, touche le bouton <b class="o">7 JOURS</b> à côté de SideStore. S'il demande
+de créer un nouveau certificat, réponds oui.</p>
+</div></div>
+
+<h2 class="part pb">D · Installer C-SAFE</h2>
+
+<div class="step"><div class="num">6</div><div class="body"><div class="row"><div>
+<h3>Télécharge C-SAFE.ipa sur l'iPhone</h3>
+<p>Dans Safari, ouvre ce lien et touche <b>Télécharger</b> :</p>
+<code>github.com/h5r9ptb9kt-byte/C-SAFE/releases/latest/download/C-SAFE.ipa</code>
+<p>Le fichier arrive dans <span class="path">Fichiers › Téléchargements</span>.</p>
+<h3 style="margin-top:12px">Ajoute-le dans SideStore</h3>
+<p>SideStore › <b>Mes apps</b> › bouton <b class="o">+</b> en haut à gauche, puis choisis
+<b>C-SAFE.ipa</b>. Au bout de quelques secondes, l'icône C-SAFE apparaît sur l'écran d'accueil.</p>
+</div>
+<div><div class="ios"><div class="t"><span style="color:#007aff;font-size:14pt;float:left;margin-right:8px">＋</span>Mes apps</div>
+  <div class="g"><div class="r"><span>🟣 SideStore</span><span class="btn g">7 JOURS</span></div>
+  <div class="r hl"><span><img src="icon.png" style="width:16px;vertical-align:-3px"> C-SAFE</span><span class="btn g">7 JOURS</span></div></div>
+  <div class="g"><div class="r" style="justify-content:center;color:#007aff">Tout rafraîchir</div></div>
+</div><div class="cap">Schéma, l'écran réel peut légèrement varier</div></div>
+</div></div></div>
+
+<h2 class="part">E · Plus jamais de « 7 jours » : le renouvellement automatique</h2>
+
+<div class="step"><div class="num">7</div><div class="body"><div class="row"><div>
+<h3>Crée une automatisation dans l'app Raccourcis</h3>
+<p><span class="path">Raccourcis › Automatisation › ＋ › Heure de la journée</span></p>
+<p>• Heure : <b>03:00</b>, Répéter : <b>Tous les jours</b><br>
+• Choisis <b class="o">Exécuter immédiatement</b> et désactive « M'avertir lors de l'exécution »<br>
+• Action : cherche <b>SideStore</b> et choisis <b>Refresh All Apps</b> (« Tout rafraîchir »)</p>
+<p>Lance-la une fois à la main pour accepter les autorisations. Ensuite, chaque nuit, l'iPhone renouvelle
+C-SAFE tout seul, s'il est en Wi-Fi avec LocalDevVPN connecté.</p>
+</div>
+<div><div class="ios"><div class="t">Nouvelle automatisation</div>
+  <div class="g"><div class="r">Heure<span style="color:#8e8e93">03:00</span></div><div class="r">Répéter<span style="color:#8e8e93">Tous les jours</span></div></div>
+  <div class="g hl"><div class="r"><b>Exécuter immédiatement</b><span style="color:#007aff">✓</span></div></div>
+  <div class="g"><div class="r">🟣 Refresh All Apps</div></div>
+</div><div class="cap">Schéma, l'écran réel peut légèrement varier</div></div>
+</div></div></div>
+
+<h2 class="part">F · Premier tournage</h2>
+
+<div class="step"><div class="num">8</div><div class="body"><div class="row"><div>
+<h3>Branche, choisis, copie</h3>
+<p>• Branche le <b>hub USB-C alimenté</b> (secteur ou batterie) sur l'iPhone, puis le lecteur de carte et les disques sur le hub.<br>
+• Dans C-SAFE : <b>Ajouter un disque</b>, puis choisis le disque dans Fichiers. Fais-le pour chaque disque, une seule fois.<br>
+• <b>Choisir une carte</b>, puis choisis la carte. Vérifie la source, le modèle et le numéro.<br>
+• <b class="o">Démarrer la copie</b>. Tu peux changer d'app ou recevoir un appel : la copie continue, et sa progression
+s'affiche en haut de l'écran.</p>
+<div class="box ok">✅ Comme sur Mac : mêmes dossiers, mêmes noms, vérification MD5, rapports .mhl. Un disque copié
+sur iPhone se relit tel quel sur Mac.</div>
+</div><img class="shot" src="iphone.png"></div>
+</div></div>
+
+<div class="box tip"><b>Bon à savoir</b><br>
+• <b>Disques en exFAT ou APFS</b>. Le NTFS de Windows n'est pas lisible en écriture par l'iPhone.<br>
+• <b>Câble USB 3</b> entre le hub et l'iPhone : le câble de charge fourni est souvent limité à l'USB 2, donc lent.<br>
+• <b>Une app ne s'ouvre plus</b> (signature expirée) : connecte LocalDevVPN, puis SideStore › Mes apps › <b>Tout rafraîchir</b>. Tes copies ne sont jamais touchées.<br>
+• <b>Mise à jour de C-SAFE</b> : télécharge le nouveau .ipa, puis SideStore › ＋. Il remplace l'ancien, et tes réglages sont gardés.<br>
+• <b>Après une mise à jour d'iOS</b>, SideStore peut demander de rebrancher l'iPhone à l'ordinateur une fois (iloader).<br>
+• Un identifiant Apple gratuit permet <b>3 apps</b> de ce type : SideStore + C-SAFE = 2.</div>
+
+</body></html>
