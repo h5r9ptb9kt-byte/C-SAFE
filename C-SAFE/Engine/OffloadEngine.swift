@@ -47,6 +47,44 @@ final class CancelFlag {
     var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
 }
 
+private final class DataBox {
+    var data: Data?
+    var error: Error?
+}
+
+/// Temps passé par chaque maillon (lecture carte, écriture de chaque disque, calcul MD5)
+/// pour dire, après la copie, ce qui a limité la vitesse.
+final class SpeedStats {
+    private let lock = NSLock()
+    private(set) var bytes: Int64 = 0
+    private(set) var readSeconds: Double = 0
+    private(set) var hashSeconds: Double = 0
+    private(set) var writeSeconds: [Double]
+    init(disks: Int) { writeSeconds = Array(repeating: 0, count: disks) }
+    func add(read: Double) { lock.lock(); readSeconds += read; lock.unlock() }
+    func add(hash: Double) { lock.lock(); hashSeconds += hash; lock.unlock() }
+    func add(write: Double, disk: Int) { lock.lock(); writeSeconds[disk] += write; lock.unlock() }
+    func add(bytes b: Int64) { lock.lock(); bytes += b; lock.unlock() }
+    /// Vitesse que chaque maillon pourrait tenir seul (octets par seconde)
+    func rate(_ seconds: Double) -> Double { seconds > 0.01 ? Double(bytes) / seconds : 0 }
+
+    /// « carte 980 Mo/s · Crucial 1,0 Go/s · MD5 1,4 Go/s → limité par la carte »
+    func summary(diskNames: [String]) -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard bytes > 64 * 1024 * 1024 else { return "" }
+        var parts: [(String, Double)] = [("la carte (lecteur)", rate(readSeconds))]
+        for (i, s) in writeSeconds.enumerated() {
+            parts.append(("le disque « \(i < diskNames.count ? diskNames[i] : "\(i + 1)") »", rate(s)))
+        }
+        parts.append(("le calcul MD5", rate(hashSeconds)))
+        let known = parts.filter { $0.1 > 0 }
+        guard let slowest = known.min(by: { $0.1 < $1.1 }) else { return "" }
+        let detail = known.map { "\($0.0.replacingOccurrences(of: "le disque ", with: "").replacingOccurrences(of: "la carte (lecteur)", with: "carte").replacingOccurrences(of: "le calcul MD5", with: "MD5")) \(OffloadJob.human(Int64($0.1)))/s" }
+            .joined(separator: " · ")
+        return "Maillon le plus lent : \(slowest.0) — \(detail)"
+    }
+}
+
 private final class ErrorBox {
     private var stored: Error?
     private let lock = NSLock()
@@ -102,7 +140,7 @@ enum History {
 
 final class OffloadJob {
 
-    static let chunkSize = 8 * 1024 * 1024
+    static let chunkSize = 16 * 1024 * 1024
 
     /// Désactive le cache disque pour ce fichier : la mémoire du Mac n'est pas saturée,
     /// et la vérification relit vraiment les données sur le disque (pas une copie en mémoire).
@@ -256,6 +294,7 @@ final class OffloadJob {
         var hashes: [String: String] = [:]
         var done: Int64 = 0
         let copyStart = Date()
+        let stats = SpeedStats(disks: plan.targets.count)
         for f in files {
             try check()
             let targets = plan.targets.map { $0.appendingPathComponent(f.rel) }
@@ -276,38 +315,61 @@ final class OffloadJob {
             let input = try FileHandle(forReadingFrom: f.url)
             Self.noCache(input)
             var hasher = Insecure.MD5()
-            // Lecture et écritures en parallèle (double tampon) : pendant que le morceau N
-            // s'écrit sur tous les disques, le morceau N+1 est déjà lu sur la carte.
-            // Chaque morceau est libéré dès qu'il est écrit : mémoire stable (~16 Mo par copie).
-            let writes = DispatchGroup()
+            // Pipeline : pendant que le morceau N s'écrit sur tous les disques ET que son empreinte
+            // MD5 se calcule, le morceau N+1 est déjà en lecture sur la carte. Les trois tâches
+            // avancent en même temps : la vitesse est celle du maillon le plus lent, pas leur somme.
+            // Mémoire stable : deux morceaux au plus par copie (~32 Mo).
+            let readQ = DispatchQueue(label: "csafe.lecture")
+            let hashQ = DispatchQueue(label: "csafe.md5")
             let writeError = ErrorBox()
+            func readChunk() throws -> Data? {
+                let t = Date()
+                defer { stats.add(read: Date().timeIntervalSince(t)) }
+                return try autoreleasepool {
+                    guard let c = try input.read(upToCount: Self.chunkSize), !c.isEmpty else { return nil }
+                    return c
+                }
+            }
             do {
-                while true {
+                var current = try readChunk()
+                while let chunk = current {
                     try check()
-                    let chunk: Data? = try autoreleasepool {
-                        guard let c = try input.read(upToCount: Self.chunkSize), !c.isEmpty else { return nil }
-                        return c
+                    let next = DataBox()
+                    let reading = DispatchGroup()
+                    reading.enter()
+                    readQ.async {
+                        do { next.data = try readChunk() } catch { next.error = error }
+                        reading.leave()
                     }
-                    writes.wait()                                  // le morceau précédent est écrit partout
-                    if let e = writeError.error { throw e }
-                    guard let chunk else { break }
-                    hasher.update(data: chunk)
-                    for o in outs {
-                        writes.enter()
+                    let work = DispatchGroup()
+                    work.enter()
+                    hashQ.async {
+                        let t = Date()
+                        hasher.update(data: chunk)
+                        stats.add(hash: Date().timeIntervalSince(t))
+                        work.leave()
+                    }
+                    for (i, o) in outs.enumerated() {
+                        work.enter()
                         DispatchQueue.global(qos: .userInitiated).async {
+                            let t = Date()
                             autoreleasepool {
                                 do { try o.write(contentsOf: chunk) } catch { writeError.set(error) }
                             }
-                            writes.leave()
+                            stats.add(write: Date().timeIntervalSince(t), disk: i)
+                            work.leave()
                         }
                     }
+                    work.wait()
+                    reading.wait()
+                    if let e = writeError.error { throw e }
+                    if let e = next.error { throw e }
+                    stats.add(bytes: Int64(chunk.count))
                     done += Int64(chunk.count)
                     progress("Copie", done, total, since: copyStart)
+                    current = next.data
                 }
-                writes.wait()
-                if let e = writeError.error { throw e }
             } catch {
-                writes.wait()
                 try? input.close()
                 outs.forEach { try? $0.close() }
                 throw error
@@ -403,6 +465,11 @@ final class OffloadJob {
         let end = Date()
         let elapsed = end.timeIntervalSince(t0)
         let speed = copySeconds > 0 ? Double(total) / copySeconds : 0
+        let diskNames = plan.targets.map {
+            (try? $0.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? $0.lastPathComponent
+        }
+        let speedNote = stats.summary(diskNames: diskNames)
+        if !speedNote.isEmpty { log(speedNote) }
 
         let md5Text = files.map { "\(hashes[$0.rel] ?? "")  \($0.rel)\n" }.joined()
         var report: [String] = [
@@ -418,6 +485,7 @@ final class OffloadJob {
             "Taille totale   : \(Self.human(total))",
             "Durée totale    : \(Int(elapsed) / 60) min \(Int(elapsed) % 60) s",
             "Débit de copie  : \(Self.human(Int64(speed)))/s",
+            "Vitesses        : \(speedNote.isEmpty ? "—" : speedNote)",
             "Vérification    : \(allOK ? "OK — toutes les copies sont identiques" : "ÉCHEC")",
             "",
             "Destinations :",
@@ -457,7 +525,7 @@ final class OffloadJob {
                                  name: shortName, source: source)
         }
         return OffloadResult(ok: true, display: plan.display,
-                             message: "\(shortName) : \(Self.human(total)) copiés et vérifiés sur \(plan.targets.count) disque(s) en \(Int(elapsed) / 60) min \(Int(elapsed) % 60) s.",
+                             message: "\(shortName) : \(Self.human(total)) copiés et vérifiés sur \(plan.targets.count) disque(s) en \(Int(elapsed) / 60) min \(Int(elapsed) % 60) s (copie à \(Self.human(Int64(speed)))/s)." + (speedNote.isEmpty ? "" : " " + speedNote + "."),
                              name: shortName, source: source)
     }
 

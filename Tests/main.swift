@@ -64,6 +64,7 @@ let secs = Date().timeIntervalSince(t0)
 print("RESULTAT copie : ok=\(r1.ok) dossier=\(r1.display) — \(r1.message)")
 print(String(format: "MESURE durée totale (copie + vérification) %.1f s · débit carte %.0f Mo/s · mémoire max %.0f Mo",
              secs, 2000 / secs, maxRSSMB()))
+check(r1.message.contains("Maillon le plus lent"), "goulot de vitesse indiqué : \(r1.message.components(separatedBy: "Maillon").last ?? "")")
 check(r1.ok, "copie et vérification de 2 Go sur 2 disques")
 check(r1.display == "J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01", "nom du dossier (\(r1.display))")
 check(maxRSSMB() < 400, String(format: "mémoire stable (%.0f Mo max, limite 400 Mo)", maxRSSMB()))
