@@ -69,6 +69,15 @@ struct ContentView: View {
                     Text(state.errorMessage ?? "")
                 }
         )
+        #if os(macOS)
+        .alert("Mise à jour disponible",
+               isPresented: Binding(get: { state.updateOffer != nil }, set: { if !$0 { state.cancelUpdate() } })) {
+            Button("Installer et relancer") { state.confirmUpdate() }
+            Button("Plus tard", role: .cancel) { state.cancelUpdate() }
+        } message: {
+            Text("C-SAFE \(state.updateOffer ?? "") est disponible (tu as la \(Updater.currentVersion)). C-SAFE va se fermer puis se rouvrir tout seul. Tes réglages sont gardés.")
+        }
+        #endif
         .onChange(of: state.project) { state.refresh() }
         .onChange(of: state.shootDate) { state.refresh() }
     }
@@ -114,6 +123,7 @@ struct ContentView: View {
 // MARK: - En-tête
 
 struct HeaderView: View {
+    @EnvironmentObject var state: AppState
     var body: some View {
         HStack(spacing: 8) {
             Image("Logo")
@@ -127,11 +137,12 @@ struct HeaderView: View {
                 Text("C-SAFE")
                     .font(.system(size: Theme.fs(18), weight: .heavy, design: .rounded))
                     .foregroundStyle(Theme.cream)
-                Text("par C-FOCUS")
+                Text("par C-FOCUS · v\(Updater.currentVersion)")
                     .font(.system(size: Theme.fs(10), weight: .medium))
                     .foregroundStyle(Theme.orange)
             }
             Spacer(minLength: 6)
+            updateButton
             StatusPill()
         }
     }
@@ -161,6 +172,32 @@ struct StatusPill: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Capsule().fill(color.opacity(0.15)))
+    }
+}
+
+extension HeaderView {
+    /// « Mettre à jour » : Mac → C-SAFE.dmg d'iCloud Drive ; iPhone/iPad → AltStore
+    @ViewBuilder var updateButton: some View {
+        Button {
+            #if os(macOS)
+            state.checkForUpdate()
+            #else
+            Updater.openAltStore()
+            #endif
+        } label: {
+            #if os(macOS)
+            if state.checkingUpdate {
+                ProgressView().controlSize(.small)
+            } else {
+                Label("Mise à jour", systemImage: "arrow.down.circle")
+            }
+            #else
+            Label("Mise à jour", systemImage: "arrow.down.circle")
+            #endif
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .disabled(state.busy)
+        .help("Installer la dernière version de C-SAFE (depuis iCloud Drive › CFocus › App Mac C-FOCUS)")
     }
 }
 

@@ -6,6 +6,7 @@
 
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #else
@@ -469,6 +470,83 @@ final class AppState: ObservableObject {
         refreshCards()
         addLog("Carte ajoutée : « \(url.lastPathComponent) ». Clique « Démarrer la copie ».")
     }
+
+    // MARK: - Mise à jour de l'app
+
+    #if os(macOS)
+    /// Version proposée (« 1.48 ») quand le .dmg d'iCloud Drive est plus récent
+    @Published var updateOffer: String?
+    @Published private(set) var checkingUpdate = false
+    private var foundUpdate: Updater.Found?
+
+    func checkForUpdate() {
+        guard !busy else { errorMessage = "Attends la fin des copies pour mettre à jour C-SAFE."; return }
+        guard !checkingUpdate else { return }
+        var dmg = Updater.dmgLocation()
+        if dmg == nil {
+            let panel = NSOpenPanel()
+            panel.message = "C-SAFE.dmg introuvable dans iCloud Drive › CFocus › App Mac C-FOCUS. Choisis le fichier C-SAFE.dmg à utiliser pour les mises à jour."
+            panel.allowedContentTypes = [.diskImage]
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            Updater.remember(url)
+            dmg = url
+        }
+        guard let dmg else { return }
+        checkingUpdate = true
+        addLog("Recherche d'une mise à jour (\(dmg.deletingLastPathComponent().lastPathComponent))…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let found = try Updater.inspect(dmg) { msg in
+                    DispatchQueue.main.async { MainActor.assumeIsolated { self.addLog(msg) } }
+                }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.checkingUpdate = false
+                        if found.build > Updater.currentBuild {
+                            self.foundUpdate = found
+                            self.updateOffer = found.version
+                        } else {
+                            Updater.detach(found.mount)
+                            self.addLog("C-SAFE est à jour (version \(Updater.currentVersion)).")
+                            self.errorMessage = "C-SAFE est à jour (version \(Updater.currentVersion))."
+                        }
+                    }
+                }
+            } catch {
+                let msg = (error as? OffloadError)?.message ?? error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.checkingUpdate = false
+                        self.errorMessage = "Mise à jour impossible : \(msg)"
+                    }
+                }
+            }
+        }
+    }
+
+    func confirmUpdate() {
+        guard let found = foundUpdate else { return }
+        guard !busy else { errorMessage = "Attends la fin des copies pour mettre à jour C-SAFE."; return }
+        updateOffer = nil
+        addLog("Installation de la version \(found.version)… C-SAFE va redémarrer.")
+        save()
+        DispatchQueue.global(qos: .userInitiated).async {
+            do { try Updater.install(found) } catch {
+                let msg = (error as? OffloadError)?.message ?? error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self.errorMessage = "Mise à jour impossible : \(msg)" }
+                }
+            }
+        }
+    }
+
+    func cancelUpdate() {
+        if let f = foundUpdate { Updater.detach(f.mount) }
+        foundUpdate = nil
+        updateOffer = nil
+    }
+    #endif
 
     /// Identifiant stable d'un disque (UUID du volume, sinon son chemin)
     func volumeID(_ url: URL) -> String {
