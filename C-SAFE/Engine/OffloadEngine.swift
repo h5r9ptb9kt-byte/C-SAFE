@@ -62,6 +62,10 @@ final class SpeedStats {
     private(set) var writeSeconds: [Double]
     init(disks: Int) { writeSeconds = Array(repeating: 0, count: disks) }
     func add(read: Double) { lock.lock(); readSeconds += read; lock.unlock() }
+    private var inFlight = 0
+    private var busySince = Date()
+    func beginRead() { lock.lock(); if inFlight == 0 { busySince = Date() }; inFlight += 1; lock.unlock() }
+    func endRead() { lock.lock(); inFlight -= 1; if inFlight == 0 { readSeconds += Date().timeIntervalSince(busySince) }; lock.unlock() }
     func add(hash: Double) { lock.lock(); hashSeconds += hash; lock.unlock() }
     func add(write: Double, disk: Int) { lock.lock(); writeSeconds[disk] += write; lock.unlock() }
     func add(bytes b: Int64) { lock.lock(); bytes += b; lock.unlock() }
@@ -82,6 +86,67 @@ final class SpeedStats {
         let detail = known.map { "\($0.0.replacingOccurrences(of: "le disque ", with: "").replacingOccurrences(of: "la carte (lecteur)", with: "carte").replacingOccurrences(of: "le calcul de l'empreinte", with: "empreinte")) \(OffloadJob.human(Int64($0.1)))/s" }
             .joined(separator: " · ")
         return "Maillon le plus lent : \(slowest.0) — \(detail)"
+    }
+}
+
+/// Lit un fichier par morceaux avec plusieurs lectures en vol (pread à des positions différentes) :
+/// les cartes CFexpress / SSD NVMe vont bien plus vite quand on leur demande deux morceaux à la fois.
+/// Le traitement d'un morceau (écritures, empreinte) se fait pendant que les suivants se lisent.
+enum ReadAhead {
+    static let queue = DispatchQueue(label: "csafe.lecture-anticipee", qos: .userInitiated, attributes: .concurrent)
+
+    static func stream(_ url: URL, chunk: Int, depth: Int = 2, stats: SpeedStats? = nil,
+                       check: () throws -> Void, body: (Data) throws -> Void) throws {
+        let fd = open(url.path, O_RDONLY)
+        guard fd >= 0 else { throw OffloadError(message: "lecture impossible : \(url.lastPathComponent)") }
+        _ = fcntl(fd, F_NOCACHE, 1)
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { close(fd); throw OffloadError(message: "lecture impossible : \(url.lastPathComponent)") }
+        let size = Int64(st.st_size)
+        let count = Int((size + Int64(chunk) - 1) / Int64(chunk))
+        var pending: [(DispatchGroup, DataBox)] = []
+        defer {
+            pending.forEach { $0.0.wait() }   // jamais fermer pendant une lecture en vol
+            close(fd)
+        }
+        func start(_ i: Int) {
+            let offset = Int64(i) * Int64(chunk)
+            let length = Int(min(Int64(chunk), size - offset))
+            let g = DispatchGroup(), box = DataBox()
+            g.enter()
+            stats?.beginRead()
+            queue.async {
+                autoreleasepool {
+                    var d = Data(count: length)
+                    var got = 0
+                    let ok: Bool = d.withUnsafeMutableBytes { raw in
+                        while got < length {
+                            let r = pread(fd, raw.baseAddress! + got, length - got, off_t(offset) + off_t(got))
+                            if r < 0 { if errno == EINTR { continue }; return false }
+                            if r == 0 { break }
+                            got += r
+                        }
+                        return true
+                    }
+                    if !ok { box.error = OffloadError(message: "erreur de lecture : \(url.lastPathComponent) (\(String(cString: strerror(errno))))") }
+                    else if got < length { box.error = OffloadError(message: "fichier tronqué pendant la lecture : \(url.lastPathComponent)") }
+                    else { box.data = d }
+                }
+                stats?.endRead()
+                g.leave()
+            }
+            pending.append((g, box))
+        }
+        var next = 0
+        while next < min(depth, count) { start(next); next += 1 }
+        for _ in 0..<count {
+            try check()
+            let (g, box) = pending.removeFirst()
+            g.wait()
+            if next < count { start(next); next += 1 }
+            if let e = box.error { throw e }
+            try body(box.data ?? Data())
+        }
     }
 }
 
@@ -312,35 +377,14 @@ final class OffloadJob {
                 Self.noCache(out)
                 outs.append(out)
             }
-            let input = try FileHandle(forReadingFrom: f.url)
-            Self.noCache(input)
             var hasher = XXHash64()
-            // Pipeline : pendant que le morceau N s'écrit sur tous les disques ET que son empreinte
-            // MD5 se calcule, le morceau N+1 est déjà en lecture sur la carte. Les trois tâches
-            // avancent en même temps : la vitesse est celle du maillon le plus lent, pas leur somme.
-            // Mémoire stable : deux morceaux au plus par copie (~32 Mo).
-            let readQ = DispatchQueue(label: "csafe.lecture")
-            let hashQ = DispatchQueue(label: "csafe.md5")
+            // Pipeline : deux morceaux de la carte en lecture pendant que le morceau courant
+            // s'écrit sur tous les disques ET que son empreinte se calcule. La vitesse est celle
+            // du maillon le plus lent, pas la somme. Mémoire stable : ~3 morceaux de 16 Mo par copie.
+            let hashQ = DispatchQueue(label: "csafe.empreinte")
             let writeError = ErrorBox()
-            func readChunk() throws -> Data? {
-                let t = Date()
-                defer { stats.add(read: Date().timeIntervalSince(t)) }
-                return try autoreleasepool {
-                    guard let c = try input.read(upToCount: Self.chunkSize), !c.isEmpty else { return nil }
-                    return c
-                }
-            }
             do {
-                var current = try readChunk()
-                while let chunk = current {
-                    try check()
-                    let next = DataBox()
-                    let reading = DispatchGroup()
-                    reading.enter()
-                    readQ.async {
-                        do { next.data = try readChunk() } catch { next.error = error }
-                        reading.leave()
-                    }
+                try ReadAhead.stream(f.url, chunk: Self.chunkSize, depth: 2, stats: stats, check: check) { chunk in
                     let work = DispatchGroup()
                     work.enter()
                     hashQ.async {
@@ -361,20 +405,15 @@ final class OffloadJob {
                         }
                     }
                     work.wait()
-                    reading.wait()
                     if let e = writeError.error { throw e }
-                    if let e = next.error { throw e }
                     stats.add(bytes: Int64(chunk.count))
                     done += Int64(chunk.count)
                     progress("Copie", done, total, since: copyStart)
-                    current = next.data
                 }
             } catch {
-                try? input.close()
                 outs.forEach { try? $0.close() }
                 throw error
             }
-            try? input.close()
             for o in outs { try o.close() }
 
             let attrs = try? fm.attributesOfItem(atPath: f.url.path)
@@ -609,19 +648,11 @@ final class OffloadJob {
     // MARK: Outils
 
     private func md5(of url: URL, onChunk: (Int) -> Void) throws -> String {
-        let h = try FileHandle(forReadingFrom: url)
-        Self.noCache(h)
-        defer { try? h.close() }
         var hasher = XXHash64()
-        while true {
-            if cancel.isSet { throw OffloadCancelled() }
-            let more: Bool = try autoreleasepool {
-                guard let chunk = try h.read(upToCount: Self.chunkSize), !chunk.isEmpty else { return false }
-                hasher.update(data: chunk)
-                onChunk(chunk.count)
-                return true
-            }
-            if !more { break }
+        try ReadAhead.stream(url, chunk: Self.chunkSize, depth: 2,
+                             check: { if cancel.isSet { throw OffloadCancelled() } }) { chunk in
+            hasher.update(data: chunk)
+            onChunk(chunk.count)
         }
         return hasher.hexDigest()
     }
