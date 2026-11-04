@@ -95,11 +95,17 @@ final class SpeedStats {
 enum ReadAhead {
     static let queue = DispatchQueue(label: "csafe.lecture-anticipee", qos: .userInitiated, attributes: .concurrent)
 
-    static func stream(_ url: URL, chunk: Int, depth: Int = 2, stats: SpeedStats? = nil,
+    /// `cached: true` pour la carte : macOS garde sa lecture anticipée (comme le Finder), bien plus rapide.
+    /// `cached: false` pour la vérification : on relit vraiment le disque, jamais une copie en mémoire.
+    static func stream(_ url: URL, chunk: Int, depth: Int = 4, cached: Bool = false, stats: SpeedStats? = nil,
                        check: () throws -> Void, body: (Data) throws -> Void) throws {
         let fd = open(url.path, O_RDONLY)
         guard fd >= 0 else { throw OffloadError(message: "lecture impossible : \(url.lastPathComponent)") }
-        _ = fcntl(fd, F_NOCACHE, 1)
+        if cached {
+            _ = fcntl(fd, F_RDAHEAD, 1)
+        } else {
+            _ = fcntl(fd, F_NOCACHE, 1)
+        }
         var st = stat()
         guard fstat(fd, &st) == 0 else { close(fd); throw OffloadError(message: "lecture impossible : \(url.lastPathComponent)") }
         let size = Int64(st.st_size)
@@ -384,7 +390,7 @@ final class OffloadJob {
             let hashQ = DispatchQueue(label: "csafe.empreinte")
             let writeError = ErrorBox()
             do {
-                try ReadAhead.stream(f.url, chunk: Self.chunkSize, depth: 2, stats: stats, check: check) { chunk in
+                try ReadAhead.stream(f.url, chunk: Self.chunkSize, depth: 4, cached: true, stats: stats, check: check) { chunk in
                     let work = DispatchGroup()
                     work.enter()
                     hashQ.async {
@@ -649,7 +655,7 @@ final class OffloadJob {
 
     private func md5(of url: URL, onChunk: (Int) -> Void) throws -> String {
         var hasher = XXHash64()
-        try ReadAhead.stream(url, chunk: Self.chunkSize, depth: 2,
+        try ReadAhead.stream(url, chunk: Self.chunkSize, depth: 4, cached: false,
                              check: { if cancel.isSet { throw OffloadCancelled() } }) { chunk in
             hasher.update(data: chunk)
             onChunk(chunk.count)
