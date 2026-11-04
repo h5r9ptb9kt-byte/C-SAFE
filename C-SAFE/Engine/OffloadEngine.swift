@@ -1,7 +1,7 @@
 //
 //  OffloadEngine.swift — C-SAFE
 //  Copie une carte vers plusieurs disques EN MÊME TEMPS (une seule lecture),
-//  vérifie chaque copie (MD5), écrit MHL + rapports, gère doublons et échecs.
+//  vérifie chaque copie (xxHash64), écrit MHL + rapports, gère doublons et échecs.
 //
 
 import Foundation
@@ -76,10 +76,10 @@ final class SpeedStats {
         for (i, s) in writeSeconds.enumerated() {
             parts.append(("le disque « \(i < diskNames.count ? diskNames[i] : "\(i + 1)") »", rate(s)))
         }
-        parts.append(("le calcul MD5", rate(hashSeconds)))
+        parts.append(("le calcul de l'empreinte", rate(hashSeconds)))
         let known = parts.filter { $0.1 > 0 }
         guard let slowest = known.min(by: { $0.1 < $1.1 }) else { return "" }
-        let detail = known.map { "\($0.0.replacingOccurrences(of: "le disque ", with: "").replacingOccurrences(of: "la carte (lecteur)", with: "carte").replacingOccurrences(of: "le calcul MD5", with: "MD5")) \(OffloadJob.human(Int64($0.1)))/s" }
+        let detail = known.map { "\($0.0.replacingOccurrences(of: "le disque ", with: "").replacingOccurrences(of: "la carte (lecteur)", with: "carte").replacingOccurrences(of: "le calcul de l'empreinte", with: "empreinte")) \(OffloadJob.human(Int64($0.1)))/s" }
             .joined(separator: " · ")
         return "Maillon le plus lent : \(slowest.0) — \(detail)"
     }
@@ -314,7 +314,7 @@ final class OffloadJob {
             }
             let input = try FileHandle(forReadingFrom: f.url)
             Self.noCache(input)
-            var hasher = Insecure.MD5()
+            var hasher = XXHash64()
             // Pipeline : pendant que le morceau N s'écrit sur tous les disques ET que son empreinte
             // MD5 se calcule, le morceau N+1 est déjà en lecture sur la carte. Les trois tâches
             // avancent en même temps : la vitesse est celle du maillon le plus lent, pas leur somme.
@@ -386,7 +386,7 @@ final class OffloadJob {
                 if let c = attrs?[.creationDate] { keep[.creationDate] = c }
                 if !keep.isEmpty { try? fm.setAttributes(keep, ofItemAtPath: t.path) }
             }
-            hashes[f.rel] = Self.hex(hasher.finalize())
+            hashes[f.rel] = hasher.hexDigest()
         }
         progress("Copie", total, total, since: copyStart, force: true)
 
@@ -411,7 +411,7 @@ final class OffloadJob {
         let copySeconds = Date().timeIntervalSince(t0)
 
         // ---- Vérification : chaque disque relu en parallèle ----
-        log("Vérification des copies (checksum MD5)…")
+        log("Vérification des copies (empreinte xxHash64)…")
         let vtotal = total * Int64(plan.targets.count)
         let verifyStart = Date()
         let counterLock = NSLock()
@@ -507,7 +507,7 @@ final class OffloadJob {
         for pd in projectDirs {
             let rd = pd.appendingPathComponent(Naming.reportDir)
             do {
-                try md5Text.write(to: rd.appendingPathComponent("\(reportName).md5"), atomically: true, encoding: .utf8)
+                try md5Text.write(to: rd.appendingPathComponent("\(reportName).xxh64"), atomically: true, encoding: .utf8)
                 try reportText.write(to: rd.appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
                 if allOK {
                     let entry = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
@@ -591,7 +591,7 @@ final class OffloadJob {
                     "    <file>\(Self.xml("../\(display)/\(f.rel)"))</file>",
                     "    <size>\(f.size)</size>",
                     "    <lastmodificationdate>\(iso.string(from: mod))</lastmodificationdate>",
-                    "    <md5>\(hashes[f.rel] ?? "")</md5>",
+                    "    <xxhash64be>\(hashes[f.rel] ?? "")</xxhash64be>",
                     "    <hashdate>\(iso.string(from: end))</hashdate>",
                     "  </hash>",
                 ]
@@ -612,7 +612,7 @@ final class OffloadJob {
         let h = try FileHandle(forReadingFrom: url)
         Self.noCache(h)
         defer { try? h.close() }
-        var hasher = Insecure.MD5()
+        var hasher = XXHash64()
         while true {
             if cancel.isSet { throw OffloadCancelled() }
             let more: Bool = try autoreleasepool {
@@ -623,7 +623,7 @@ final class OffloadJob {
             }
             if !more { break }
         }
-        return Self.hex(hasher.finalize())
+        return hasher.hexDigest()
     }
 
     /// Copie déjà faite d'une carte : où, quand, sur quels disques.
@@ -847,4 +847,108 @@ final class OffloadJob {
         }
         return "\(n) o"
     }
+}
+
+// MARK: - xxHash64 (empreinte des fichiers)
+//
+// Standard des logiciels de DIT (ShotPut Pro, Silverstack, Hedge, MHL « xxhash64be ») :
+// aussi sûr que le MD5 pour vérifier une copie, mais bien plus rapide à calculer.
+// Implémentation fidèle de l'algorithme officiel (graine 0), en flux continu.
+struct XXHash64 {
+    private static let p1: UInt64 = 11400714785074694791
+    private static let p2: UInt64 = 14029467366897019727
+    private static let p3: UInt64 = 1609587929392839161
+    private static let p4: UInt64 = 9650029242287828579
+    private static let p5: UInt64 = 2870177450012600261
+
+    private var v1: UInt64 = 0 &+ p1 &+ p2
+    private var v2: UInt64 = 0 &+ p2
+    private var v3: UInt64 = 0
+    private var v4: UInt64 = 0 &- p1
+    private var buffer = [UInt8](repeating: 0, count: 32)
+    private var buffered = 0
+    private var total: UInt64 = 0
+
+    @inline(__always) private static func rotl(_ x: UInt64, _ r: UInt64) -> UInt64 { (x << r) | (x >> (64 - r)) }
+    @inline(__always) private static func round(_ acc: UInt64, _ input: UInt64) -> UInt64 {
+        rotl(acc &+ input &* p2, 31) &* p1
+    }
+    @inline(__always) private static func merge(_ h: UInt64, _ v: UInt64) -> UInt64 {
+        (h ^ round(0, v)) &* p1 &+ p4
+    }
+
+    @inline(__always) private mutating func stripe(_ p: UnsafeRawPointer) {
+        v1 = Self.round(v1, UInt64(littleEndian: p.loadUnaligned(fromByteOffset: 0, as: UInt64.self)))
+        v2 = Self.round(v2, UInt64(littleEndian: p.loadUnaligned(fromByteOffset: 8, as: UInt64.self)))
+        v3 = Self.round(v3, UInt64(littleEndian: p.loadUnaligned(fromByteOffset: 16, as: UInt64.self)))
+        v4 = Self.round(v4, UInt64(littleEndian: p.loadUnaligned(fromByteOffset: 24, as: UInt64.self)))
+    }
+
+    mutating func update(data: Data) {
+        data.withUnsafeBytes { raw in update(raw) }
+    }
+
+    mutating func update(_ raw: UnsafeRawBufferPointer) {
+        guard var p = raw.baseAddress, raw.count > 0 else { return }
+        var n = raw.count
+        total &+= UInt64(n)
+        if buffered > 0 {
+            let take = min(32 - buffered, n)
+            buffer.withUnsafeMutableBytes { b in
+                (b.baseAddress! + buffered).copyMemory(from: p, byteCount: take)
+            }
+            buffered += take
+            p += take
+            n -= take
+            if buffered < 32 { return }
+            buffer.withUnsafeBytes { b in stripe(b.baseAddress!) }
+            buffered = 0
+        }
+        while n >= 32 {
+            stripe(p)
+            p += 32
+            n -= 32
+        }
+        if n > 0 {
+            buffer.withUnsafeMutableBytes { b in b.baseAddress!.copyMemory(from: p, byteCount: n) }
+            buffered = n
+        }
+    }
+
+    func finalize() -> UInt64 {
+        var h: UInt64
+        if total >= 32 {
+            h = Self.rotl(v1, 1) &+ Self.rotl(v2, 7) &+ Self.rotl(v3, 12) &+ Self.rotl(v4, 18)
+            h = Self.merge(h, v1); h = Self.merge(h, v2); h = Self.merge(h, v3); h = Self.merge(h, v4)
+        } else {
+            h = v3 &+ Self.p5
+        }
+        h &+= total
+        buffer.withUnsafeBytes { b in
+            let p = b.baseAddress!
+            var i = 0
+            while buffered - i >= 8 {
+                h ^= Self.round(0, UInt64(littleEndian: p.loadUnaligned(fromByteOffset: i, as: UInt64.self)))
+                h = Self.rotl(h, 27) &* Self.p1 &+ Self.p4
+                i += 8
+            }
+            if buffered - i >= 4 {
+                h ^= UInt64(UInt32(littleEndian: p.loadUnaligned(fromByteOffset: i, as: UInt32.self))) &* Self.p1
+                h = Self.rotl(h, 23) &* Self.p2 &+ Self.p3
+                i += 4
+            }
+            while i < buffered {
+                h ^= UInt64(p.load(fromByteOffset: i, as: UInt8.self)) &* Self.p5
+                h = Self.rotl(h, 11) &* Self.p1
+                i += 1
+            }
+        }
+        h ^= h >> 33; h &*= Self.p2
+        h ^= h >> 29; h &*= Self.p3
+        h ^= h >> 32
+        return h
+    }
+
+    /// 16 caractères hexadécimaux, ordre « big-endian » comme dans les MHL (xxhash64be)
+    func hexDigest() -> String { String(format: "%016llx", finalize()) }
 }

@@ -9,11 +9,11 @@ CE QUE FAIT C-SAFE
       <Disque>/<Projet>/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01/
       <Disque>/<Projet>/J1_2026-10-18/SON/         (enregistreur, copié directement)
       <Disque>/<Projet>/J1_2026-10-18/SON/HF1, HF3… (HF au choix, dans l'ordre que tu veux)
-      <Disque>/<Projet>/Rapports_de_copie/    (rapports, .md5, .mhl — toujours après les jours)
+      <Disque>/<Projet>/Rapports_de_copie/    (rapports, .xxh64, .mhl — toujours après les jours)
 - Jour de tournage J1, J2, J3… automatique, toujours dans l'ordre des dates (J2 peut
   être une semaine après J1). Une date déjà utilisée reprend son J. Une date plus
   ancienne (copie en retard) propose de renuméroter les jours suivants.
-- Vérifie chaque fichier sur chaque disque (MD5) et ajoute un fichier .mhl
+- Vérifie chaque fichier sur chaque disque (xxHash64, le standard des DIT) et ajoute un fichier .mhl
   (standard cinéma) rangé dans Rapports_de_copie : les dossiers de cartes restent
   identiques à la carte, sans aucun fichier ajouté.
 - Noms compatibles avec Premiere, Resolve, Final Cut, Avid, Windows, exFAT et NAS :

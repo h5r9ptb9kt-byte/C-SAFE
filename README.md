@@ -2,7 +2,7 @@
 
 Déchargement sécurisé de cartes caméra · par **C-FOCUS** (Etienne Chopin)
 
-C-SAFE copie chaque carte en même temps sur plusieurs disques, vérifie chaque fichier (MD5 + MHL),
+C-SAFE copie chaque carte en même temps sur plusieurs disques, vérifie chaque fichier (xxHash64 + MHL),
 et range tout automatiquement :
 
 ```

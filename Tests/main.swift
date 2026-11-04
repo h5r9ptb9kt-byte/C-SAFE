@@ -74,7 +74,7 @@ let cardFolder = d2.appendingPathComponent("Tournage-ete/J1_2026-10-18/CamA_FX3/
 let inCard = (try? fm.contentsOfDirectory(atPath: cardFolder.path)) ?? []
 check(inCard == ["PRIVATE"], "dossier de carte identique à la carte, aucun fichier ajouté (\(inCard))")
 let reports = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []
-check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuffix(".md5") } && reports.contains { $0.hasSuffix("_rapport.txt") },
+check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuffix(".xxh64") } && reports.contains { $0.hasSuffix("_rapport.txt") },
       "rapports et .mhl dans Rapports_de_copie (\(reports.count) fichiers)")
 let projectItems = ((try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete").path)) ?? []).sorted()
 check(projectItems.last == "Rapports_de_copie", "Rapports_de_copie rangé après les jours (\(projectItems))")
@@ -175,6 +175,26 @@ OffloadJob(source: makeCard("CARTE_J2", mb: 7), destinations: [d1, d2], project:
            force: false) { ev in if case .finished(let r) = ev { rDay2 = r } }.run()
 check(rDay2?.ok == true && rDay2?.display.hasPrefix("J2_2026-10-19/CamA_FX2/") == true, "nouveau jour : CamA peut être une FX2 (\(rDay2?.display ?? "?"))")
 check(Naming.conflictingLabel(destinations: [d1, d2], project: PJ, day: J1, label: "SON") == nil, "le son n'est pas concerné")
+
+// 9. xxHash64 : valeurs de référence de l'algorithme officiel (bibliothèque xxhash)
+func pattern(_ n: Int) -> Data { Data((0..<n).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) }) }
+let refs: [(Int, String)] = [(0, "ef46db3751d8e999"), (1, "a96c7f0ce858bbb7"), (3, "56e6957632a487f9"), (4, "c60d15b1e3ff8f04"),
+    (7, "afbefc3d6c6f9a8e"), (8, "3da5c7aa269683e0"), (9, "4b17a9ba9e215c09"), (31, "4a74f3a1a39ad4a1"), (32, "8d57d6a4671cc43d"),
+    (33, "62c9fd21ed857664"), (63, "5c320a0d2707057f"), (64, "7bbabbc45729d17e"), (100, "efa0ad2d3e70c151"),
+    (1000, "99594f4828043d35"), (1048589, "5ef8192c1492aa4d")]
+var xxOK = true
+for (n, ref) in refs {
+    var h = XXHash64(); h.update(data: pattern(n))
+    var hs = XXHash64(); let d = pattern(n); var i = 0; var k = 1
+    while i < n { let j = min(n, i + k); hs.update(data: d.subdata(in: i..<j)); i = j; k = k % 37 + 5 }
+    if h.hexDigest() != ref || hs.hexDigest() != ref { xxOK = false; print("xxh64 \(n) : \(h.hexDigest()) / \(hs.hexDigest()) attendu \(ref)") }
+}
+var habc = XXHash64(); habc.update(data: Data("abc".utf8))
+check(xxOK && habc.hexDigest() == "44bc2cf5ad770999", "xxHash64 identique à l'algorithme officiel (15 tailles, en un bloc et en morceaux)")
+let big64 = pattern(256 * 1024 * 1024)
+let tx = Date(); var hb = XXHash64(); hb.update(data: big64)
+let xxRate = 256.0 / Date().timeIntervalSince(tx)
+check(xxRate > 1500, String(format: "xxHash64 rapide : %.0f Mo/s", xxRate))
 
 // 8. Reconnaissance des cartes : un disque de sauvegarde n'est jamais une source
 func touch(_ u: URL) { try! fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true); fm.createFile(atPath: u.path, contents: Data([1])) }
