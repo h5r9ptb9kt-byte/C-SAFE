@@ -192,6 +192,14 @@ jobs:
       - name: Joindre le guide iPhone
         run: cp "Distribution/Installer C-SAFE sur iPhone.pdf" .
 
+      - name: Ménage (anciens outils temporaires)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete outil-transcription --cleanup-tag -y || true
+          gh api -X DELETE repos/${{ github.repository }}/git/refs/heads/outils-transcription || true
+
       - name: Publier la version à partager
         uses: softprops/action-gh-release@v2
         with:
