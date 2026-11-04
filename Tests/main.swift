@@ -175,6 +175,32 @@ OffloadJob(source: makeCard("CARTE_J2", mb: 7), destinations: [d1, d2], project:
 check(rDay2?.ok == true && rDay2?.display.hasPrefix("J2_2026-10-19/CamA_FX2/") == true, "nouveau jour : CamA peut être une FX2 (\(rDay2?.display ?? "?"))")
 check(Naming.conflictingLabel(destinations: [d1, d2], project: PJ, day: J1, label: "SON") == nil, "le son n'est pas concerné")
 
+// 8. Reconnaissance des cartes : un disque de sauvegarde n'est jamais une source
+func touch(_ u: URL) { try! fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true); fm.createFile(atPath: u.path, contents: Data([1])) }
+let vol = base.appendingPathComponent("VOLUMES")
+let backup = vol.appendingPathComponent("TERRAMASTER")
+touch(backup.appendingPathComponent("Film/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01/PRIVATE/M4ROOT/CLIP/C0001.MP4"))
+try! fm.createDirectory(at: backup.appendingPathComponent("Film/\(Naming.reportDir)"), withIntermediateDirectories: true)
+check(!OffloadJob.looksLikeCameraCard(backup), "disque de sauvegarde C-SAFE jamais pris pour une carte")
+let archive = vol.appendingPathComponent("ARCHIVES")
+touch(archive.appendingPathComponent("Films/2024/Vacances/clip.mp4"))
+touch(archive.appendingPathComponent("MISC/notes.txt"))
+check(!OffloadJob.looksLikeCameraCard(archive), "disque d'archives (vidéos rangées en profondeur, dossier MISC) pas pris pour une carte")
+let zoom = vol.appendingPathComponent("ZOOM_F6")
+touch(zoom.appendingPathComponent("FOLDER01/ZOOM0001/ZOOM0001_TR1.WAV"))
+check(OffloadJob.looksLikeCameraCard(zoom), "carte d'enregistreur son (WAV deux niveaux plus bas) reconnue")
+let bm = vol.appendingPathComponent("BMPCC")
+touch(bm.appendingPathComponent("A001_C001.braw"))
+check(OffloadJob.looksLikeCameraCard(bm), "carte Blackmagic (BRAW à la racine) reconnue")
+check(OffloadJob.looksLikeCameraCard(card), "carte Sony toujours reconnue")
+// Gros disque : 30 000 fichiers en profondeur, la détection doit rester instantanée
+let big = vol.appendingPathComponent("GROS_DISQUE")
+for i in 0..<300 { for j in 0..<100 { touch(big.appendingPathComponent("P\(i)/A/B/C/f\(j).mov")) } }
+let tDet = Date()
+let bigIsCard = OffloadJob.looksLikeCameraCard(big)
+let detMs = Date().timeIntervalSince(tDet) * 1000
+check(!bigIsCard && detMs < 300, String(format: "gros disque analysé en %.0f ms sans être pris pour une carte", detMs))
+
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")
 let pj = dz.appendingPathComponent("Film")

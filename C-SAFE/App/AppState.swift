@@ -30,6 +30,7 @@ struct CardVolume: Identifiable, Equatable {
     var kind: String? = nil                        // marque / format reconnus (« Sony XAVC », « Son (WAV) »…)
     var key: String = ""                           // chemin + identifiant du volume (une carte = une clé)
     var previous: OffloadJob.PreviousCopy? = nil   // déjà copiée : où et sur quel disque
+    var analyzing = false                          // contenu en cours d'analyse (en arrière-plan)
 }
 
 /// Une copie en cours (plusieurs possibles en même temps)
@@ -120,6 +121,10 @@ final class AppState: ObservableObject {
     @Published private(set) var copiedCards: Set<String> = []
 
     private var camTypes: [String: String]
+    /// Disques retirés de la colonne Source par l'utilisateur (identifiant du volume), mémorisés
+    @Published private(set) var ignoredVolumes: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "csafe.ignoredVolumes") ?? [])
+    /// Analyses de contenu en cours (jamais sur le fil principal : un gros disque figeait l'app)
+    private var pendingSignatures: Set<String> = []
     private var pickedCards: [URL] = []
     private var signatureCache: [String: [String]] = [:]   // carte (chemin + identifiant du volume) → empreintes
     private var copiedWhere: [String: String] = [:]   // carte → « Projet/J1_…/CamA_…/CamA_…_Carte01 »
@@ -210,7 +215,23 @@ final class AppState: ObservableObject {
         let key = url.path + "|" + uuid
         c.key = key
         c.kind = OffloadJob.cameraKind(url)
-        if signatureCache[key] == nil { signatureCache[key] = OffloadJob.cardSignatures(url) }
+        if signatureCache[key] == nil {
+            c.analyzing = true
+            if !pendingSignatures.contains(key) {
+                pendingSignatures.insert(key)
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    let sigs = OffloadJob.cardSignatures(url)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard let self else { return }
+                            self.pendingSignatures.remove(key)
+                            self.signatureCache[key] = sigs
+                            self.refreshCards()
+                        }
+                    }
+                }
+            }
+        }
         if let sigs = signatureCache[key], !sigs.isEmpty {
             c.previous = OffloadJob.findPreviousCopy(signatures: sigs, destinations: destinationURLs())
         }
@@ -237,7 +258,10 @@ final class AppState: ObservableObject {
     func refreshCards() {
         #if os(macOS)
         let vols = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? []
-        let mounted = vols.filter { $0.path.hasPrefix("/Volumes/") && isCandidate($0) && OffloadJob.looksLikeCameraCard($0) }
+        let mounted = vols.filter {
+            $0.path.hasPrefix("/Volumes/") && isCandidate($0) && !ignoredVolumes.contains(volumeID($0))
+                && OffloadJob.looksLikeCameraCard($0)
+        }
         pickedCards.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
         let extra = pickedCards.filter { p in !mounted.contains { $0.standardizedFileURL.path == p.standardizedFileURL.path } }
         let mountedPaths = Set(vols.map { $0.path })
@@ -444,6 +468,36 @@ final class AppState: ObservableObject {
         if !pickedCards.contains(url) { pickedCards.append(url) }
         refreshCards()
         addLog("Carte ajoutée : « \(url.lastPathComponent) ». Clique « Démarrer la copie ».")
+    }
+
+    /// Identifiant stable d'un disque (UUID du volume, sinon son chemin)
+    func volumeID(_ url: URL) -> String {
+        (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString) ?? url.standardizedFileURL.path
+    }
+
+    /// Poubelle : retire ce disque de la colonne Source, et s'en souvient
+    func ignoreCard(_ card: CardVolume) {
+        ignoredVolumes.insert(volumeID(card.url))
+        UserDefaults.standard.set(Array(ignoredVolumes), forKey: "csafe.ignoredVolumes")
+        pickedCards.removeAll { $0 == card.url }
+        assignments[card.key] = nil
+        addLog("« \(card.name) » retiré des sources (« Réafficher » sous la liste pour le remettre).")
+        refreshCards()
+    }
+
+    func showIgnoredVolumes() {
+        ignoredVolumes.removeAll()
+        UserDefaults.standard.removeObject(forKey: "csafe.ignoredVolumes")
+        addLog("Disques retirés réaffichés.")
+        refreshCards()
+    }
+
+    /// Un disque pris pour une carte est en fait un disque de sauvegarde : il passe à droite
+    func makeDestination(_ card: CardVolume) {
+        pickedCards.removeAll { $0 == card.url }
+        assignments[card.key] = nil
+        addDestination(card.url)
+        refreshCards()
     }
 
     /// iPad / iPhone : retirer la carte de la colonne (avant de la débrancher)

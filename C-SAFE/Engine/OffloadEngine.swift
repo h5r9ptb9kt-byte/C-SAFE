@@ -110,6 +110,14 @@ final class OffloadJob {
         _ = fcntl(h.fileDescriptor, F_NOCACHE, 1)
     }
 
+    /// Au-delà de cette taille, un volume est un disque, pas une carte (les plus grosses cartes font 4 To)
+    static let maxCardBytes: Int64 = 4_100_000_000_000
+    /// Dossiers qui n'existent que sur une carte de caméra (pas de noms génériques comme MISC ou CLIP)
+    static let cardMarkers: Set<String> = [
+        "DCIM", "PRIVATE", "M4ROOT", "XDROOT", "CONTENTS", "AVCHD", "BPAV", "CANONMSC",
+    ]
+    /// Formats cherchés un niveau plus bas (enregistreurs son, RED, ARRI, Blackmagic)
+    static let deepExtensions: Set<String> = ["wav", "bwf", "r3d", "braw", "ari", "arx", "mxf"]
     static let cameraMarkers: Set<String> = [
         "DCIM", "PRIVATE", "CLIP", "M4ROOT", "XDROOT", "CONTENTS", "AVCHD", "BPAV",
         "CANONMSC", "MISC", "ARRI", "RED", "BRAW", "FOOTAGE", "DJI",
@@ -684,15 +692,45 @@ final class OffloadJob {
         return nil
     }
 
+    /// Une carte caméra / son se reconnaît à sa racine : structure de carte (DCIM, PRIVATE/M4ROOT…)
+    /// ou fichiers caméra directement dessus ou dans un dossier de premier niveau.
+    /// Lecture limitée (quelques dossiers, jamais tout le disque) : instantané même sur un disque de 20 To.
+    /// Un disque de sauvegarde (déjà utilisé par C-SAFE) ou un très gros disque n'est jamais une carte.
     static func looksLikeCameraCard(_ root: URL) -> Bool {
+        if isBackupDisk(root) { return false }
+        if cameraKind(root) != nil { return true }
+        let names = Naming.list(root).filter { !$0.hasPrefix(".") }
+        if names.contains(where: { cardMarkers.contains($0.uppercased()) }) { return true }
+        func ext(_ n: String) -> String { (n as NSString).pathExtension.lowercased() }
+        if names.contains(where: { cameraExtensions.contains(ext($0)) }) { return true }
+        var dirs = 0
+        for n in names {
+            let d = root.appendingPathComponent(n)
+            guard Naming.isDir(d) else { continue }
+            dirs += 1
+            if dirs > 12 { break }
+            let sub = Naming.list(d).prefix(300)
+            if sub.contains(where: { cameraExtensions.contains(ext($0)) }) { return true }
+            // Enregistreurs son (Zoom…), RED, ARRI : un niveau de plus, formats pro uniquement
+            for x in sub.prefix(20) where !x.hasPrefix(".") {
+                let dd = d.appendingPathComponent(x)
+                guard Naming.isDir(dd) else { continue }
+                if Naming.list(dd).prefix(300).contains(where: { deepExtensions.contains(ext($0)) }) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Plus gros qu'une carte (au-delà de 4 To) ou contient déjà des copies C-SAFE
+    static func isBackupDisk(_ root: URL) -> Bool {
+        let v = try? root.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeURLKey])
+        let isVolumeRoot = v?.volume?.standardizedFileURL.path == root.standardizedFileURL.path
+        if isVolumeRoot, let total = v?.volumeTotalCapacity, Int64(total) > maxCardBytes { return true }
         let names = Naming.list(root)
-        if names.contains(where: { cameraMarkers.contains($0.uppercased()) }) { return true }
-        let base = root.standardizedFileURL.pathComponents.count
-        guard let en = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey],
-                                                      options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return false }
-        for case let u as URL in en {
-            if u.standardizedFileURL.pathComponents.count - base > 3 { en.skipDescendants(); continue }
-            if cameraExtensions.contains(u.pathExtension.lowercased()) { return true }
+        if names.contains(Naming.reportDir) || names.contains("_Rapports") { return true }
+        for n in names.prefix(40) where !n.hasPrefix(".") {
+            let sub = Naming.list(root.appendingPathComponent(n))
+            if sub.contains(Naming.reportDir) || sub.contains("_Rapports") { return true }
         }
         return false
     }

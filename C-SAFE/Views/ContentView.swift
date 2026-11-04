@@ -401,6 +401,14 @@ struct SourceColumn: View {
             ForEach(state.cards) { card in
                 CardRow(card: card, askName: askName)
             }
+            if !state.ignoredVolumes.isEmpty {
+                Button { state.showIgnoredVolumes() } label: {
+                    Label("\(state.ignoredVolumes.count) disque(s) retiré(s) · Réafficher", systemImage: "eye")
+                        .font(.system(size: Theme.fs(10)))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.muted)
+            }
             Button(action: onPickCard) { Label("Choisir une carte…", systemImage: "folder") }
                 .buttonStyle(SecondaryButtonStyle())
                 .disabled(state.busy)
@@ -446,6 +454,18 @@ struct CardRow: View {
                     .help("Annuler la copie de cette carte")
                 } else {
                     #if os(macOS)
+                    Button { state.makeDestination(card) } label: {
+                        Image(systemName: "externaldrive.badge.plus").font(.system(size: Theme.fs(11)))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.cyan)
+                    .help("C'est un disque de sauvegarde : en faire une destination")
+                    Button { state.ignoreCard(card) } label: {
+                        Image(systemName: "trash").font(.system(size: Theme.fs(11)))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.muted)
+                    .help("Retirer de la liste des sources (C-SAFE s'en souviendra)")
                     if card.ejectable {
                         Button { state.ejectCard(card) } label: {
                             Image(systemName: "eject.fill").font(.system(size: Theme.fs(11)))
@@ -456,7 +476,7 @@ struct CardRow: View {
                     }
                     #else
                     Button { state.forgetCard(card) } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: Theme.fs(13)))
+                        Image(systemName: "trash").font(.system(size: Theme.fs(12)))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.muted)
@@ -519,6 +539,7 @@ struct CardRow: View {
     private var subtitle: String {
         if run != nil { return "Copie en cours…" }
         if let p = card.previous { return "✓ Déjà copiée : \(p.short)" }
+        if card.analyzing { return (card.detail.isEmpty ? "" : card.detail + " · ") + "analyse…" }
         if !card.isCamera { return "Pas une carte caméra" }
         return card.detail.isEmpty ? "Carte caméra" : card.detail
     }
