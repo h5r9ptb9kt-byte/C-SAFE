@@ -463,7 +463,24 @@ final class AppState: ObservableObject {
     }
 
     /// iPad / iPhone : carte choisie dans Fichiers
-    func pickCard(_ url: URL) {
+    func pickCard(_ picked: URL) {
+        var url = picked
+        // Dossier choisi À L'INTÉRIEUR d'une carte (M4ROOT, CLIP, DCIM…) : on copie toujours la carte entière,
+        // sinon il manque des fichiers et la structure attendue par les logiciels de montage est cassée.
+        #if os(macOS)
+        if let card = OffloadJob.enclosingCard(of: picked) {
+            url = card
+            addLog("« \(picked.lastPathComponent) » est un dossier de la carte : C-SAFE copie la carte entière « \(Self.cardInfo(card).name) ».")
+        } else if OffloadJob.insideCardNames.contains(picked.lastPathComponent.uppercased()) {
+            errorMessage = "« \(picked.lastPathComponent) » est un dossier à l'intérieur d'une carte. Choisis la carte elle-même (son nom dans la colonne de gauche du Finder), pour que la copie soit complète."
+            return
+        }
+        #else
+        if OffloadJob.insideCardNames.contains(picked.lastPathComponent.uppercased()) {
+            errorMessage = "« \(picked.lastPathComponent) » est un dossier à l'intérieur d'une carte. Choisis la carte elle-même (au-dessus de ce dossier, dans Fichiers), pour que la copie soit complète."
+            return
+        }
+        #endif
         // L'accès à la carte reste ouvert tant qu'elle est affichée dans la colonne source.
         _ = url.startAccessingSecurityScopedResource()
         if !pickedCards.contains(url) { pickedCards.append(url) }

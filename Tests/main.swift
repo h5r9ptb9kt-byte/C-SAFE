@@ -214,6 +214,7 @@ let bm = vol.appendingPathComponent("BMPCC")
 touch(bm.appendingPathComponent("A001_C001.braw"))
 check(OffloadJob.looksLikeCameraCard(bm), "carte Blackmagic (BRAW à la racine) reconnue")
 check(OffloadJob.looksLikeCameraCard(card), "carte Sony toujours reconnue")
+check(OffloadJob.insideCardNames.contains("M4ROOT") && OffloadJob.insideCardNames.contains("CLIP"), "dossiers internes de carte reconnus (M4ROOT, CLIP…)")
 // Gros disque : 30 000 fichiers en profondeur, la détection doit rester instantanée
 let big = vol.appendingPathComponent("GROS_DISQUE")
 for i in 0..<300 { for j in 0..<100 { touch(big.appendingPathComponent("P\(i)/A/B/C/f\(j).mov")) } }

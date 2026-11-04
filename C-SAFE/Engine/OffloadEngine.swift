@@ -826,6 +826,21 @@ final class OffloadJob {
         return false
     }
 
+    /// Dossiers qui n'existent qu'à l'intérieur d'une carte : les choisir seuls donnerait une copie
+    /// incomplète et une structure cassée pour les logiciels de montage (Catalyst, Premiere…).
+    static let insideCardNames: Set<String> = [
+        "M4ROOT", "PRIVATE", "CLIP", "SUB", "THMBNL", "GENERAL", "AVF_INFO", "SONY", "DCIM", "XDROOT",
+        "CONTENTS", "AVCHD", "BPAV", "CANONMSC", "MISC", "DATABASE",
+    ]
+
+    /// Un dossier choisi à l'intérieur d'une carte (ex. « M4ROOT ») : renvoie la carte entière.
+    static func enclosingCard(of url: URL) -> URL? {
+        guard let vol = (try? url.resourceValues(forKeys: [.volumeURLKey]))?.volume,
+              vol.standardizedFileURL.path != url.standardizedFileURL.path,
+              vol.standardizedFileURL.path != "/" else { return nil }
+        return looksLikeCameraCard(vol) ? vol : nil
+    }
+
     /// Plus gros qu'une carte (au-delà de 4 To) ou contient déjà des copies C-SAFE
     static func isBackupDisk(_ root: URL) -> Bool {
         let v = try? root.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeURLKey])
