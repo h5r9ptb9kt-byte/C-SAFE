@@ -145,6 +145,8 @@ jobs:
           path: C-SAFE.ipa
 
   apercu-iphone:
+    # Captures du simulateur : seulement sur demande (« Run workflow »), pour ne pas occuper une machine Mac de plus
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
     continue-on-error: true
     steps:
