@@ -263,14 +263,59 @@ struct ShootPanel: View {
 /// Numéro du jour de tournage, calculé automatiquement d'après la date
 struct DayBadge: View {
     @EnvironmentObject var state: AppState
+
+    private var badge: some View {
+        HStack(spacing: 3) {
+            Text(state.shootDay.map { "J\($0)" } ?? "J –")
+                .font(.system(size: Theme.fs(13), weight: .heavy, design: .rounded))
+            if !state.dayExisting {
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: Theme.fs(7), weight: .bold))
+            }
+        }
+        .foregroundStyle(Theme.orange)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 28)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.orange.opacity(state.dayManual ? 0.28 : 0.14)))
+    }
+
     var body: some View {
-        Text(state.shootDay.map { "J\($0)" } ?? "J –")
-            .font(.system(size: Theme.fs(13), weight: .heavy, design: .rounded))
-            .foregroundStyle(Theme.orange)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 28)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.orange.opacity(0.14)))
-            .help("Jour de tournage, numéroté automatiquement dans l'ordre des dates")
+        if state.dayExisting {
+            badge.help("Ce jour de tournage existe déjà sur les disques : les cartes s'y ajoutent")
+        } else {
+            let used = state.usedDays
+            let maxN = max(15, (used.keys.max() ?? 0) + 10)
+            Menu {
+                Button {
+                    state.setShootDay(nil)
+                } label: {
+                    let t = "Automatique (J\(state.autoShootDay))"
+                    if state.dayManual { Text(t) } else { Label(t, systemImage: "checkmark") }
+                }
+                Divider()
+                Section("Projet rejoint en cours de route") {
+                    ForEach(1...maxN, id: \.self) { n in
+                        Button {
+                            state.setShootDay(n)
+                        } label: {
+                            if let d = used[n] {
+                                Label("J\(n) · déjà pris le \(Naming.shortDate(d))", systemImage: "lock.fill")
+                            } else if state.dayManual && state.shootDay == n {
+                                Label("J\(n)", systemImage: "checkmark")
+                            } else {
+                                Text("J\(n)")
+                            }
+                        }
+                        .disabled(used[n] != nil)
+                    }
+                }
+            } label: { badge }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(state.busy)
+            .help("Jour de tournage : automatique dans l'ordre des dates, ou choisi à la main (J3, J7…) si tu rejoins un projet en cours")
+        }
     }
 }
 
@@ -279,9 +324,14 @@ struct DayInfo: View {
     @EnvironmentObject var state: AppState
     var body: some View {
         let j = state.shootDay ?? 1
-        if state.dayShift.isEmpty {
+        if state.dayManual {
+            Text("J\(j) choisi à la main (projet rejoint en cours de route). Les jours suivants continueront à J\(j + 1), J\(j + 2)…")
+                .font(.system(size: Theme.fs(10)))
+                .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if state.dayShift.isEmpty {
             Text(state.dayExisting ? "J\(j) : jour de tournage déjà commencé, les cartes s'y ajoutent."
-                                   : (j == 1 ? "J1 : premier jour de tournage du projet." : "J\(j) : nouveau jour de tournage (après J\(j - 1))."))
+                                   : (j == 1 ? "J1 : premier jour de tournage du projet. Touche J1 pour choisir un autre numéro." : "J\(j) : nouveau jour de tournage (après J\(j - 1))."))
                 .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
         } else {

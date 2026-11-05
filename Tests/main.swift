@@ -235,6 +235,14 @@ check(Naming.dayPlan(date: "2026-10-25", used: used).j == 2, "date déjà utilis
 check(Naming.dayPlan(date: "2026-11-02", used: used).j == 3, "date plus récente (une semaine après) : J suivant")
 let late = Naming.dayPlan(date: "2026-10-20", used: used)
 check(late.j == 2 && late.shifted.map { $0.j } == [2], "date insérée en retard : devient J2, J2 à décaler")
+// Projet rejoint en cours de route : J7 choisi à la main, puis la suite continue à J8
+let joined: [Int: String] = [:]
+let m7 = Naming.dayPlan(date: "2026-11-05", used: joined, manual: 7)
+check(m7.j == 7 && !m7.existing && m7.shifted.isEmpty, "jour choisi à la main : J7 pour le premier jour copié")
+let after7 = Naming.dayPlan(date: "2026-11-06", used: [7: "2026-11-05"])
+check(after7.j == 8, "après un J7 choisi à la main, le jour suivant devient J8")
+check(Naming.dayPlan(date: "2026-11-05", used: [7: "2026-11-05"], manual: 3).j == 7, "une date déjà copiée garde son J, même si on choisit un autre numéro")
+check(Naming.dayPlan(date: "2026-11-07", used: [7: "2026-11-05"], manual: 7).j == 8, "un numéro déjà pris par une autre date est refusé")
 let rn = Naming.renumberDays(destinations: [dz], project: "Film", after: "2026-10-20")
 used = Naming.usedShootDays(destinations: [dz], project: "Film")
 check(rn.errors.isEmpty && used[3] == "2026-10-25" && used[1] == "2026-10-18" && used[2] == nil, "renumérotation : J2_2026-10-25 → J3_2026-10-25")

@@ -80,6 +80,10 @@ final class AppState: ObservableObject {
     @Published private(set) var shootDay: Int?
     @Published private(set) var usedDays: [Int: String] = [:]
     @Published private(set) var dayExisting = false
+    /// Jour choisi à la main pour une date (« Projet|2026-11-05 » → 7), mémorisé
+    @Published private(set) var manualDays: [String: Int] =
+        (UserDefaults.standard.dictionary(forKey: "csafe.manualDays") as? [String: Int]) ?? [:]
+    @Published private(set) var dayManual = false
     /// Jours plus récents à renuméroter si la date choisie est plus ancienne (copie en retard)
     @Published private(set) var dayShift: [DayShift] = []
     struct DayShift: Hashable { let j: Int; let date: String }
@@ -659,6 +663,26 @@ final class AppState: ObservableObject {
         if let d = try? JSONEncoder().encode(s) { UserDefaults.standard.set(d, forKey: Self.settingsKey) }
     }
 
+    // MARK: - Jour choisi à la main
+
+    private var manualDayKey: String { Naming.sanitize(project) + "|" + dateString }
+
+    /// Numéro que C-SAFE donnerait tout seul à cette date
+    var autoShootDay: Int { Naming.dayPlan(date: dateString, used: usedDays).j }
+
+    /// Projet rejoint en cours de route : on choisit J3, J7… (nil = automatique)
+    func setShootDay(_ j: Int?) {
+        guard !busy else { return }
+        if let j, usedDays[j] != nil {
+            errorMessage = "J\(j) est déjà utilisé le \(Naming.shortDate(usedDays[j] ?? "")). Choisis un autre numéro."
+            return
+        }
+        manualDays[manualDayKey] = j
+        UserDefaults.standard.set(manualDays, forKey: "csafe.manualDays")
+        refresh()
+        addLog(j.map { "Jour choisi à la main : J\($0) pour le \(Naming.shortDate(dateString))." } ?? "Jour de tournage : numérotation automatique.")
+    }
+
     /// Recalcule les sources déjà faites et l'aperçu du prochain dossier.
     func refresh() {
         let urls = destinationURLs()
@@ -671,9 +695,11 @@ final class AppState: ObservableObject {
         updateParallel()
         // Jour de tournage (J1, J2…) : automatique, toujours dans l'ordre des dates
         usedDays = Naming.usedShootDays(destinations: urls, project: project)
-        let dayPlan = Naming.dayPlan(date: dateString, used: usedDays)
+        let manual = manualDays[manualDayKey]
+        let dayPlan = Naming.dayPlan(date: dateString, used: usedDays, manual: manual)
         shootDay = dayPlan.j
         dayExisting = dayPlan.existing
+        dayManual = !dayPlan.existing && manual != nil && dayPlan.j == manual
         let shift = dayPlan.shifted.map { DayShift(j: $0.j, date: $0.date) }
         if shift != dayShift { dayShift = shift }
         done = Naming.doneSources(destinations: urls, project: project, day: day, sources: sources)

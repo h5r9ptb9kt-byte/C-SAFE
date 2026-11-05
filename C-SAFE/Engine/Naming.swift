@@ -108,9 +108,14 @@ enum Naming {
     /// J1, J2… suivent l'ordre chronologique : une date déjà utilisée reprend son J,
     /// une date plus récente prend le J suivant (même une semaine plus tard),
     /// une date plus ancienne s'insère à sa place et décale les jours suivants.
-    static func dayPlan(date: String, used: [Int: String]) -> DayPlan {
+    /// `manual` : numéro choisi à la main (projet rejoint en cours de route : J3, J7…).
+    /// Ignoré s'il est déjà pris par une autre date. Les dates suivantes continuent après lui.
+    static func dayPlan(date: String, used: [Int: String], manual: Int? = nil) -> DayPlan {
         if let j = used.first(where: { $0.value == date })?.key {
             return DayPlan(j: j, existing: true, shifted: [])
+        }
+        if let m = manual, m > 0, used[m] == nil {
+            return DayPlan(j: m, existing: false, shifted: [])
         }
         let before = used.filter { $0.value < date }
         let after = used.filter { $0.value > date }.sorted { $0.key < $1.key }.map { (j: $0.key, date: $0.value) }
