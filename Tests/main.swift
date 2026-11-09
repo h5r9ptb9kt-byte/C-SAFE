@@ -78,8 +78,8 @@ check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuff
       "Rapports_de_copie : PDF + .mhl + .txt (\(reports.sorted()))")
 check(!reports.contains { $0.hasSuffix(".json") || $0.hasSuffix(".xxh64") }, "fichiers techniques (.json, .xxh64) rangés à part")
 let hiddenItems = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/.C-SAFE").path)) ?? []
-check(hiddenItems.contains(Naming.historyFile) && hiddenItems.contains { $0.hasSuffix(".xxh64") },
-      "historique et liste d'empreintes dans le dossier masqué .C-SAFE (\(hiddenItems.sorted()))")
+check(hiddenItems.contains(Naming.historyFile) && !hiddenItems.contains { $0.hasSuffix(".xxh64") },
+      "historique dans le dossier masqué .C-SAFE, plus de .xxh64 en doublon du .mhl (\(hiddenItems.sorted()))")
 if let pdfName = reports.first(where: { $0.hasSuffix("_rapport.pdf") }),
    let head = try? FileHandle(forReadingFrom: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/\(pdfName)")).read(upToCount: 5) {
     check(String(data: head, encoding: .ascii) == "%PDF-", "le rapport PDF est un vrai PDF")
@@ -242,8 +242,10 @@ let md5Job = OffloadJob(source: makeCard("CARTE_MD5", mb: 9), destinations: [d1,
 md5Job.hashKind = .md5
 md5Job.run()
 check(rMD5?.ok == true, "copie vérifiée en MD5 (\(rMD5?.message.prefix(60) ?? "?"))")
-let hidden2 = (try? fm.contentsOfDirectory(atPath: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie/.C-SAFE").path)) ?? []
-check(hidden2.contains { $0.hasSuffix("CamF_FX3_Carte01.md5") }, "liste d'empreintes .md5 quand le MD5 est choisi")
+let rep2 = (try? fm.contentsOfDirectory(atPath: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []
+let mhlMD5 = rep2.first { $0.contains("CamF_FX3_Carte01") && $0.hasSuffix(".mhl") }.flatMap {
+    try? String(contentsOf: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie/\($0)"), encoding: .utf8) } ?? ""
+check(mhlMD5.contains("<md5>"), "MHL en MD5 quand le MD5 est choisi")
 let dayPDF = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18")
 let daySize = ((try? fm.attributesOfItem(atPath: dayPDF?.path ?? ""))?[.size] as? NSNumber)?.intValue ?? 0
 check(dayPDF != nil && daySize > 2000, "rapport du jour J1 en un seul PDF (\(daySize / 1024) Ko, \(PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).count) cartes)")

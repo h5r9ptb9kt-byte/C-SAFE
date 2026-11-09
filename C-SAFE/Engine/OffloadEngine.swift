@@ -540,7 +540,6 @@ final class OffloadJob {
         let speedNote = stats.summary(diskNames: diskNames)
         if !speedNote.isEmpty { log(speedNote) }
 
-        let md5Text = files.map { "\(hashes[$0.rel] ?? "")  \($0.rel)\n" }.joined()
         var report: [String] = [
             "C-SAFE — rapport de déchargement",
             String(repeating: "=", count: 50),
@@ -599,7 +598,6 @@ final class OffloadJob {
             do {
                 let hidden = rd.appendingPathComponent(Naming.hiddenDir)
                 try fm.createDirectory(at: hidden, withIntermediateDirectories: true)
-                try md5Text.write(to: hidden.appendingPathComponent("\(reportName).\(hashKind.fileExtension)"), atomically: true, encoding: .utf8)
                 try reportText.write(to: rd.appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
                 if allOK {
                     let entry = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
