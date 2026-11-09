@@ -261,21 +261,70 @@ History.update(oldProj) { $0["signew"] = ["dossier": "x"] }
 let oldGone = !fm.fileExists(atPath: oldProj.appendingPathComponent("\(Naming.reportDir)/\(Naming.historyFile)").path)
 check(oldGone && History.load(oldProj)["sigold"] != nil && History.load(oldProj)["signew"] != nil, "ancien historique fusionné et rangé dans .C-SAFE")
 
-// 11. Vraie vidéo (fabriquée par ffmpeg dans la CI) : vignette, durée, résolution, codec dans le PDF
-let sample = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("sample.mp4")
-if fm.fileExists(atPath: sample.path) {
-    let vcard = base.appendingPathComponent("CARTE_VIDEO")
-    let vclip = vcard.appendingPathComponent("PRIVATE/M4ROOT/CLIP")
-    try! fm.createDirectory(at: vclip, withIntermediateDirectories: true)
-    try! fm.copyItem(at: sample, to: vclip.appendingPathComponent("C0001.MP4"))
-    var rV: OffloadResult?
-    OffloadJob(source: vcard, destinations: [d1], project: "Tournage été", label: "CamB_FX3", day: "J2_2026-10-19",
-               force: false) { ev in if case .finished(let r) = ev { rV = r } }.run()
-    let cardsV = PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).filter { $0.day == "J2_2026-10-19" }
-    let clipV = cardsV.flatMap { $0.clips }.first { $0.name.hasSuffix("C0001.MP4") }
-    check(rV?.ok == true && clipV?.thumb != nil && clipV?.resolution == "1280×720" && clipV?.duration != nil,
-          "PDF : vignette et infos d'une vraie vidéo (\(clipV?.resolution ?? "?"), \(clipV?.fps ?? "?"), \(clipV?.codec ?? "?"))")
-    if let u = rV?.reportPDF { try? fm.copyItem(at: u, to: URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("exemple-rapport-carte.pdf")) }
+// 11. Timecode : calculs, XML Sony réel (FX2 d'Etienne), puis vraies vidéos/son fabriqués par ffmpeg dans la CI
+check(PDFReport.TC.string(90_000, rate: 25, drop: false) == "01:00:00:00", "TC 25p : 90 000 images = 01:00:00:00")
+check(PDFReport.TC.string(1800, rate: 30, drop: true) == "00:01:00;02", "TC 29,97 drop-frame : 1800 images = 00:01:00;02")
+check(PDFReport.TC.frames(h: 0, m: 1, s: 0, f: 2, rate: 30, drop: true) == 1800, "TC drop-frame aller-retour")
+let fixtures = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("Tests/fixtures")
+let xdir = base.appendingPathComponent("XMLTEST")
+try! fm.createDirectory(at: xdir, withIntermediateDirectories: true)
+try! fm.copyItem(at: fixtures.appendingPathComponent("C0001M01.XML"), to: xdir.appendingPathComponent("C0001M01.XML"))
+touch(xdir.appendingPathComponent("C0001.MP4"))
+let sx = PDFReport.sonyXML(for: xdir.appendingPathComponent("C0001.MP4"))
+let sxTC = sx.map { PDFReport.TC.string($0.frames, rate: $0.rate, drop: $0.drop) } ?? "?"
+check(sxTC == "10:16:29:13" && sx?.camera == "Sony ILME-FX2" && sx?.lens == "FE 70-200mm F2.8 GM OSS II" && sx?.slowmo == "Ralenti ×4 (100p)",
+      "XML Sony FX2 : TC \(sxTC), \(sx?.camera ?? "?"), \(sx?.lens ?? "?"), \(sx?.slowmo ?? "?")")
+check(!PDFReport.isClip("PRIVATE/M4ROOT/THMBNL/C0001T01.JPG", videoStems: ["C0001"]) &&
+      !PDFReport.isClip("DCIM/C0001T01.JPG", videoStems: ["C0001"]) &&
+      PDFReport.isClip("PRIVATE/M4ROOT/CLIP/C0001.MP4", videoStems: ["C0001"]) &&
+      PDFReport.isClip("DCIM/100MSDCF/DSC00012.JPG", videoStems: ["C0001"]),
+      "vignettes caméra (THMBNL, …T01.JPG) exclues des clips, vraies photos gardées")
+
+let media = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("media")
+if fm.fileExists(atPath: media.appendingPathComponent("a1.mp4").path) {
+    let day3 = "J3_2026-10-20"
+    // Carte Sony (FX2) : MP4 sans piste TC + XML, vignettes THMBNL
+    let sCard = base.appendingPathComponent("CARTE_FX2")
+    let sClip = sCard.appendingPathComponent("PRIVATE/M4ROOT/CLIP"), sThumb = sCard.appendingPathComponent("PRIVATE/M4ROOT/THMBNL")
+    try! fm.createDirectory(at: sClip, withIntermediateDirectories: true)
+    try! fm.createDirectory(at: sThumb, withIntermediateDirectories: true)
+    let xml = try! String(contentsOf: fixtures.appendingPathComponent("C0001M01.XML"), encoding: .utf8)
+    for (i, v) in ["13291610", "00002010", "00102410"].enumerated() {   // 10:16:29:13, 10:20:00:00, 10:24:10:00
+        let n = String(format: "C%04d", i + 1)
+        try! fm.copyItem(at: media.appendingPathComponent("a\(i + 1).mp4"), to: sClip.appendingPathComponent("\(n).MP4"))
+        try! xml.replacingOccurrences(of: "13291610", with: v).replacingOccurrences(of: "100.00p", with: i == 0 ? "100.00p" : "25.00p")
+            .write(to: sClip.appendingPathComponent("\(n)M01.XML"), atomically: true, encoding: .utf8)
+        try! fm.copyItem(at: media.appendingPathComponent("thumb.jpg"), to: sThumb.appendingPathComponent("\(n)T01.JPG"))
+    }
+    // Carte B : MOV avec piste timecode
+    let bCard = base.appendingPathComponent("CARTE_FX3")
+    try! fm.createDirectory(at: bCard.appendingPathComponent("DCIM"), withIntermediateDirectories: true)
+    try! fm.copyItem(at: media.appendingPathComponent("b1.mov"), to: bCard.appendingPathComponent("DCIM/B001.MOV"))
+    try! fm.copyItem(at: media.appendingPathComponent("b2.mov"), to: bCard.appendingPathComponent("DCIM/B002.MOV"))
+    // Son : BWF avec TimeReference
+    let aCard = base.appendingPathComponent("CARTE_F8")
+    try! fm.createDirectory(at: aCard.appendingPathComponent("FOLDER01"), withIntermediateDirectories: true)
+    try! fm.copyItem(at: media.appendingPathComponent("son.wav"), to: aCard.appendingPathComponent("FOLDER01/S01T01.WAV"))
+
+    var reports: [String: OffloadResult] = [:]
+    for (card, label) in [(sCard, "CamA_FX2"), (bCard, "CamB_FX3"), (aCard, "Son_F8")] {
+        OffloadJob(source: card, destinations: [d1, d2], project: "Tournage été", label: label, day: day3,
+                   force: false) { ev in if case .finished(let r) = ev { reports[label] = r } }.run()
+    }
+    let cards3 = PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).filter { $0.day == day3 }
+    let camA = cards3.first { $0.label == "CamA_FX2" }, camB = cards3.first { $0.label == "CamB_FX3" }, son = cards3.first { $0.label == "Son_F8" }
+    let a1 = camA?.clips.first { $0.name.hasSuffix("C0001.MP4") }
+    check(camA?.clips.count == 3 && a1?.thumb != nil && a1?.tcIn == "10:16:29:13" && a1?.camera == "Sony ILME-FX2",
+          "carte FX2 : 3 clips (vignettes THMBNL à part), TC \(a1?.tcIn ?? "?") → \(a1?.tcOut ?? "?"), \(a1?.camera ?? "?"), \(a1?.note ?? "")")
+    let b1 = camB?.clips.first { $0.name.hasSuffix("B001.MOV") }
+    check(b1?.tcIn == "10:16:31:00", "piste timecode du MOV lue : \(b1?.tcIn ?? "?") → \(b1?.tcOut ?? "?")")
+    let s1 = son?.clips.first
+    check(s1?.tcIn == "10:16:28:00", "timecode du son (BWF) lu : \(s1?.tcIn ?? "?") · \(s1?.codec ?? "?") · \(s1?.note ?? "")")
+    let here = URL(fileURLWithPath: fm.currentDirectoryPath)
+    if let u = reports["CamA_FX2"]?.reportPDF { try? fm.copyItem(at: u, to: here.appendingPathComponent("exemple-rapport-carte.pdf")) }
+    if let u = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: day3) {
+        try? fm.copyItem(at: u, to: here.appendingPathComponent("exemple-rapport-du-jour-synchro.pdf"))
+    }
 }
 if let u = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18") {
     try? fm.copyItem(at: u, to: URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("exemple-rapport-du-jour.pdf"))

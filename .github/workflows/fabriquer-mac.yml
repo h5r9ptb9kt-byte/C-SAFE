@@ -51,7 +51,19 @@ jobs:
       - name: Tester le moteur de copie (2 Go, mémoire, vitesse, corbeille)
         run: |
           set -o pipefail
-          if command -v ffmpeg >/dev/null; then ffmpeg -loglevel error -f lavfi -i testsrc=size=1280x720:rate=25 -t 3 -pix_fmt yuv420p -c:v libx264 sample.mp4 || true; else echo "::warning title=TEST::ffmpeg absent, pas de vraie vidéo"; fi
+          command -v ffmpeg >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 timeout 600 brew install ffmpeg >/dev/null 2>&1 || true
+          if command -v ffmpeg >/dev/null; then
+            mkdir -p media
+            F="ffmpeg -loglevel error -y"
+            $F -f lavfi -i testsrc=size=1920x1080:rate=25 -t 3 -pix_fmt yuv420p -c:v libx264 media/a1.mp4
+            $F -f lavfi -i smptehdbars=size=1920x1080:rate=25 -t 3 -pix_fmt yuv420p -c:v libx264 media/a2.mp4
+            $F -f lavfi -i "mandelbrot=size=1920x1080:rate=25" -t 3 -pix_fmt yuv420p -c:v libx264 media/a3.mp4
+            $F -f lavfi -i testsrc2=size=1920x1080:rate=25 -t 6 -pix_fmt yuv420p -c:v libx264 -timecode 10:16:31:00 media/b1.mov
+            $F -f lavfi -i "cellauto=s=1920x1080:rate=25" -t 4 -pix_fmt yuv420p -c:v libx264 -timecode 10:20:05:00 media/b2.mov
+            $F -f lavfi -i "sine=frequency=440:sample_rate=48000" -t 10 -c:a pcm_s24le -write_bext 1 -metadata time_reference=1775424000 media/son.wav
+            $F -f lavfi -i testsrc=size=160x90 -frames:v 1 media/thumb.jpg
+            ls -la media
+          else echo "::warning title=TEST::ffmpeg absent, pas de vraies vidéos"; fi
           swiftc -O -swift-version 5 C-SAFE/Engine/Naming.swift C-SAFE/Engine/OffloadEngine.swift C-SAFE/Engine/PDFReport.swift Tests/main.swift -o enginetest
           status=0
           ./enginetest > test.log 2>&1 || status=$?
