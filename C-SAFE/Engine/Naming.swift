@@ -17,6 +17,8 @@ enum Naming {
     /// Nom sans « _ » initial : il se range toujours après J1, J2, J3… dans le Finder
     static let reportDir = "Rapports_de_copie"
     static let historyFile = "historique_cartes.json"
+    /// Sous-dossier masqué de Rapports_de_copie : fichiers techniques (historique, listes d'empreintes, vignettes)
+    static let hiddenDir = ".C-SAFE"
 
     // MARK: - Noms sûrs
 

@@ -23,6 +23,7 @@ struct OffloadResult {
     var message: String
     var name: String = ""
     var source: URL
+    var reportPDF: URL? = nil
 }
 
 enum OffloadEvent {
@@ -179,13 +180,25 @@ enum History {
     /// Ancien nom du dossier de rapports (versions précédentes de C-SAFE), relu pour la compatibilité
     static let legacyDir = "_Rapports"
 
+    /// Rapports_de_copie/.C-SAFE/historique_cartes.json (fichier technique, masqué)
     static func url(_ projectDir: URL, dir: String = Naming.reportDir) -> URL {
-        projectDir.appendingPathComponent(dir).appendingPathComponent(Naming.historyFile)
+        let base = projectDir.appendingPathComponent(dir)
+        return dir == Naming.reportDir
+            ? base.appendingPathComponent(Naming.hiddenDir).appendingPathComponent(Naming.historyFile)
+            : base.appendingPathComponent(Naming.historyFile)
+    }
+
+    /// Emplacement des versions ≤ 1.51 (à la vue dans Rapports_de_copie)
+    static func oldURL(_ projectDir: URL) -> URL {
+        projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent(Naming.historyFile)
     }
 
     static func load(_ projectDir: URL, dir: String = Naming.reportDir) -> Table {
-        guard let d = try? Data(contentsOf: url(projectDir, dir: dir)),
-              let t = try? JSONDecoder().decode(Table.self, from: d) else { return [:] }
+        var t: Table = [:]
+        if dir == Naming.reportDir, let d = try? Data(contentsOf: oldURL(projectDir)),
+           let old = try? JSONDecoder().decode(Table.self, from: d) { t = old }
+        if let d = try? Data(contentsOf: url(projectDir, dir: dir)),
+           let cur = try? JSONDecoder().decode(Table.self, from: d) { t.merge(cur) { _, new in new } }
         return t
     }
 
@@ -203,7 +216,11 @@ enum History {
     static func save(_ projectDir: URL, _ t: Table, dir: String = Naming.reportDir) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let d = try? enc.encode(t) { try? d.write(to: url(projectDir, dir: dir), options: .atomic) }
+        let u = url(projectDir, dir: dir)
+        try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let d = try? enc.encode(t), (try? d.write(to: u, options: .atomic)) != nil, dir == Naming.reportDir {
+            try? FileManager.default.removeItem(at: oldURL(projectDir))   // ancien fichier fusionné : on range
+        }
     }
 }
 
@@ -250,6 +267,10 @@ final class OffloadJob {
     let cancel = CancelFlag()
     private let emit: (OffloadEvent) -> Void
     private var mergeTops: Set<String>?
+    /// Empreinte de vérification choisie (xxHash64 par défaut, MD5 si la production l'exige)
+    var hashKind: HashKind = .xxh64
+    /// Rapport PDF (vignettes + infos des clips) à la fin de chaque carte
+    var makePDF = true
     private var lastEmit = Date.distantPast
     private let emitLock = NSLock()
     private let fm = FileManager.default
@@ -383,7 +404,7 @@ final class OffloadJob {
                 Self.noCache(out)
                 outs.append(out)
             }
-            var hasher = XXHash64()
+            var hasher = FileHasher(hashKind)
             // Pipeline : deux morceaux de la carte en lecture pendant que le morceau courant
             // s'écrit sur tous les disques ET que son empreinte se calcule. La vitesse est celle
             // du maillon le plus lent, pas la somme. Mémoire stable : ~3 morceaux de 16 Mo par copie.
@@ -431,7 +452,7 @@ final class OffloadJob {
                 if let c = attrs?[.creationDate] { keep[.creationDate] = c }
                 if !keep.isEmpty { try? fm.setAttributes(keep, ofItemAtPath: t.path) }
             }
-            hashes[f.rel] = hasher.hexDigest()
+            hashes[f.rel] = hasher.hex()
         }
         progress("Copie", total, total, since: copyStart, force: true)
 
@@ -456,7 +477,7 @@ final class OffloadJob {
         let copySeconds = Date().timeIntervalSince(t0)
 
         // ---- Vérification : chaque disque relu en parallèle ----
-        log("Vérification des copies (empreinte xxHash64)…")
+        log("Vérification des copies : relecture de chaque fichier sur chaque disque (\(hashKind.title))…")
         let vtotal = total * Int64(plan.targets.count)
         let verifyStart = Date()
         let counterLock = NSLock()
@@ -531,7 +552,7 @@ final class OffloadJob {
             "Durée totale    : \(Int(elapsed) / 60) min \(Int(elapsed) % 60) s",
             "Débit de copie  : \(Self.human(Int64(speed)))/s",
             "Vitesses        : \(speedNote.isEmpty ? "—" : speedNote)",
-            "Vérification    : \(allOK ? "OK — toutes les copies sont identiques" : "ÉCHEC")",
+            "Vérification    : \(allOK ? "OK — toutes les copies sont identiques" : "ÉCHEC") (\(hashKind.title), relecture de chaque fichier sur chaque disque)",
             "",
             "Destinations :",
         ]
@@ -540,7 +561,7 @@ final class OffloadJob {
             errors.forEach { report.append("        \($0)") }
         }
         report.append("")
-        report.append("Fichiers :")
+        report.append("Fichiers (empreinte \(hashKind.title)) :")
         for f in files { report.append("  \(hashes[f.rel] ?? "")  \(Self.human(f.size))  \(f.rel)") }
         let reportText = report.joined(separator: "\n") + "\n"
         let reportName = "\(day)_\(plan.targets[0].lastPathComponent)"
@@ -549,10 +570,33 @@ final class OffloadJob {
                      files: files, hashes: hashes, start: t0, end: end)
         }
 
+        // Rapport PDF (vignettes + infos des clips) : données préparées une fois, PDF écrit sur chaque disque
+        var pdfURL: URL?
+        if makePDF {
+            log("Rapport PDF : vignettes et infos des clips…")
+            let data = PDFReport.CardData(
+                project: proj, day: day, display: plan.display, label: label, cardName: cardName,
+                date: Self.stamp(end, "yyyy-MM-dd HH:mm"), files: files.count, totalBytes: total,
+                seconds: Int(elapsed), speed: Int64(speed), hash: hashKind.title, verified: allOK,
+                destinations: zip(plan.targets, allResults).map { ($0.0.path, $0.1.isEmpty) }.map { "\($0.1 ? "OK" : "ERREUR") · \($0.0)" },
+                clips: [])
+            let reportInfo = PDFReport.prepare(data, cardFolder: plan.targets[0], files: files.map { (rel: $0.rel, size: $0.size) },
+                                               hashes: hashes)
+            for pd in projectDirs {
+                if let u = PDFReport.write(reportInfo, projectDir: pd, reportName: reportName) {
+                    if pdfURL == nil { pdfURL = u }
+                } else {
+                    log("PDF non écrit dans \(pd.path)")
+                }
+            }
+        }
+
         for pd in projectDirs {
             let rd = pd.appendingPathComponent(Naming.reportDir)
             do {
-                try md5Text.write(to: rd.appendingPathComponent("\(reportName).xxh64"), atomically: true, encoding: .utf8)
+                let hidden = rd.appendingPathComponent(Naming.hiddenDir)
+                try fm.createDirectory(at: hidden, withIntermediateDirectories: true)
+                try md5Text.write(to: hidden.appendingPathComponent("\(reportName).\(hashKind.fileExtension)"), atomically: true, encoding: .utf8)
                 try reportText.write(to: rd.appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
                 if allOK {
                     let entry = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
@@ -571,7 +615,7 @@ final class OffloadJob {
         }
         return OffloadResult(ok: true, display: plan.display,
                              message: "\(shortName) : \(Self.human(total)) copiés et vérifiés sur \(plan.targets.count) disque(s) en \(Int(elapsed) / 60) min \(Int(elapsed) % 60) s (copie à \(Self.human(Int64(speed)))/s)." + (speedNote.isEmpty ? "" : " " + speedNote + "."),
-                             name: shortName, source: source)
+                             name: shortName, source: source, reportPDF: pdfURL)
     }
 
     // MARK: Échec / annulation : rien n'est jamais présenté comme une copie valide
@@ -636,7 +680,7 @@ final class OffloadJob {
                     "    <file>\(Self.xml("../\(display)/\(f.rel)"))</file>",
                     "    <size>\(f.size)</size>",
                     "    <lastmodificationdate>\(iso.string(from: mod))</lastmodificationdate>",
-                    "    <xxhash64be>\(hashes[f.rel] ?? "")</xxhash64be>",
+                    "    <\(hashKind.mhlTag)>\(hashes[f.rel] ?? "")</\(hashKind.mhlTag)>",
                     "    <hashdate>\(iso.string(from: end))</hashdate>",
                     "  </hash>",
                 ]
@@ -654,13 +698,13 @@ final class OffloadJob {
     // MARK: Outils
 
     private func md5(of url: URL, onChunk: (Int) -> Void) throws -> String {
-        var hasher = XXHash64()
+        var hasher = FileHasher(hashKind)
         try ReadAhead.stream(url, chunk: Self.chunkSize, depth: 4, cached: false,
                              check: { if cancel.isSet { throw OffloadCancelled() } }) { chunk in
             hasher.update(data: chunk)
             onChunk(chunk.count)
         }
-        return hasher.hexDigest()
+        return hasher.hex()
     }
 
     /// Copie déjà faite d'une carte : où, quand, sur quels disques.
@@ -1003,4 +1047,30 @@ struct XXHash64 {
 
     /// 16 caractères hexadécimaux, ordre « big-endian » comme dans les MHL (xxhash64be)
     func hexDigest() -> String { String(format: "%016llx", finalize()) }
+}
+
+
+// MARK: - Empreinte de vérification au choix
+
+enum HashKind: String, CaseIterable, Codable {
+    case xxh64, md5
+    var title: String { self == .xxh64 ? "xxHash64" : "MD5" }
+    var fileExtension: String { self == .xxh64 ? "xxh64" : "md5" }
+    var mhlTag: String { self == .xxh64 ? "xxhash64be" : "md5" }
+    var explanation: String {
+        self == .xxh64 ? "rapide, standard des DIT (recommandé)" : "plus lent, si la production ou l'assurance l'exige"
+    }
+}
+
+struct FileHasher {
+    let kind: HashKind
+    private var xx = XXHash64()
+    private var md = Insecure.MD5()
+    init(_ kind: HashKind) { self.kind = kind }
+    mutating func update(data: Data) {
+        if kind == .xxh64 { xx.update(data: data) } else { md.update(data: data) }
+    }
+    func hex() -> String {
+        kind == .xxh64 ? xx.hexDigest() : md.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 }

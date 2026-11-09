@@ -50,7 +50,8 @@ jobs:
       - name: Tester le moteur de copie (2 Go, mémoire, vitesse, corbeille)
         run: |
           set -o pipefail
-          swiftc -O -swift-version 5 C-SAFE/Engine/Naming.swift C-SAFE/Engine/OffloadEngine.swift Tests/main.swift -o enginetest
+          if command -v ffmpeg >/dev/null; then ffmpeg -loglevel error -f lavfi -i testsrc=size=1280x720:rate=25 -t 3 -pix_fmt yuv420p -c:v libx264 sample.mp4 || true; else echo "::warning title=TEST::ffmpeg absent, pas de vraie vidéo"; fi
+          swiftc -O -swift-version 5 C-SAFE/Engine/Naming.swift C-SAFE/Engine/OffloadEngine.swift C-SAFE/Engine/PDFReport.swift Tests/main.swift -o enginetest
           status=0
           ./enginetest > test.log 2>&1 || status=$?
           cat test.log
@@ -58,6 +59,18 @@ jobs:
           grep -E "^(TEST OK|MESURE|RESULTAT)" test.log | head -9 | while IFS= read -r l; do echo "::notice title=TEST::$l"; done
           tail -5 test.log | while IFS= read -r l; do echo "::warning title=TEST-FIN::$l"; done
           exit $status
+
+      - name: Publier les exemples de rapport PDF (version « apercu »)
+        if: always()
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apercu
+          name: Aperçus iPhone / iPad
+          prerelease: true
+          make_latest: false
+          files: exemple-rapport-*.pdf
+          fail_on_unmatched_files: false
 
       - name: Signer (signature locale)
         run: |

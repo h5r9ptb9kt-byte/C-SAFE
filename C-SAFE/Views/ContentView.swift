@@ -109,6 +109,7 @@ struct ContentView: View {
                     TransferPanel(onPickCard: { open(.card) }, onAddDestination: { open(.destination) },
                                   askName: { nameRequest = $0; newName = "" })
                     CopyPanel(onPickCard: { open(.card) })
+                    ReportsPanel()
                     LogPanel()
                 }
         .padding(10)
@@ -625,7 +626,7 @@ struct CardRow: View {
 
     private var subtitle: String {
         if run != nil { return "Copie en cours…" }
-        if let p = card.previous { return "✓ Déjà copiée : \(p.short)" }
+        if let p = card.previous { return "✓ Copiée et vérifiée : \(p.short)" }
         if card.analyzing { return (card.detail.isEmpty ? "" : card.detail + " · ") + "analyse…" }
         if !card.isCamera { return "Pas une carte caméra" }
         return card.detail.isEmpty ? "Carte caméra" : card.detail
@@ -768,6 +769,7 @@ struct CopyPanel: View {
                     .lineLimit(1)
             }
 
+            VerifyRow()
             #if os(macOS)
             Button {
                 state.startCopy()
@@ -823,6 +825,105 @@ struct CopyPanel: View {
         case .some(true): return Theme.green
         case .some(false): return Theme.red
         case .none: return Theme.muted
+        }
+    }
+}
+
+/// Vérification toujours active, visible, avec le choix de l'empreinte
+struct VerifyRow: View {
+    @EnvironmentObject var state: AppState
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "checkmark.shield.fill")
+                .font(.system(size: Theme.fs(12)))
+                .foregroundStyle(Theme.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Vérification toujours active : chaque fichier est relu sur chaque disque et comparé à la carte.")
+                    .font(.system(size: Theme.fs(10)))
+                    .foregroundStyle(Theme.cream)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(state.hashKind.title) : \(state.hashKind.explanation)")
+                    .font(.system(size: Theme.fs(10)))
+                    .foregroundStyle(Theme.muted)
+            }
+            Spacer(minLength: 4)
+            Menu {
+                ForEach(HashKind.allCases, id: \.self) { k in
+                    Button {
+                        state.hashKind = k
+                    } label: {
+                        let t = "\(k.title) — \(k.explanation)"
+                        if state.hashKind == k { Label(t, systemImage: "checkmark") } else { Text(t) }
+                    }
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(state.hashKind.title).font(.system(size: Theme.fs(11), weight: .bold, design: .rounded))
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: Theme.fs(7), weight: .bold))
+                }
+                .foregroundStyle(Theme.cream)
+                .padding(.horizontal, 7)
+                .frame(minHeight: 22)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(state.busy)
+            .help("Empreinte de vérification : xxHash64 (rapide, recommandé) ou MD5 (si la production l'exige)")
+        }
+    }
+}
+
+// MARK: - Rapports (après la copie)
+
+struct ReportsPanel: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        Panel(title: "Rapports", icon: "doc.richtext") {
+            Toggle(isOn: $state.makePDF) {
+                Text("PDF à chaque carte : vignettes, durée, résolution, codec, empreintes")
+                    .font(.system(size: Theme.fs(11)))
+                    .foregroundStyle(Theme.cream)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            if let u = state.lastReport {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.fill").foregroundStyle(Theme.orange)
+                    Text(u.lastPathComponent)
+                        .font(.system(size: Theme.fs(10), design: .monospaced))
+                        .foregroundStyle(Theme.cream)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                HStack(spacing: 6) {
+                    #if os(macOS)
+                    Button { state.openReport(u) } label: { Label("Ouvrir le PDF", systemImage: "eye") }
+                        .buttonStyle(SecondaryButtonStyle())
+                    Button { state.revealReport(u) } label: { Label("Afficher dans le Finder", systemImage: "folder") }
+                        .buttonStyle(SecondaryButtonStyle())
+                    #else
+                    ShareLink(item: u) { Label("Ouvrir / partager le PDF", systemImage: "square.and.arrow.up") }
+                        .buttonStyle(SecondaryButtonStyle())
+                    #endif
+                }
+            }
+            Button { state.makeDayReport() } label: {
+                if state.makingDayReport {
+                    Label("Rapport du jour en cours…", systemImage: "hourglass")
+                } else {
+                    Label("Rapport du jour \(state.shootDay.map { "J\($0)" } ?? "") : toutes les cartes en un PDF", systemImage: "doc.on.doc")
+                }
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(state.busy || state.makingDayReport)
+            Text("Dans Rapports_de_copie : le PDF à lire, le .mhl (standard DIT, relu par Silverstack, ShotPut, Hedge) et le .txt. Les fichiers techniques sont rangés dans le sous-dossier masqué .C-SAFE.")
+                .font(.system(size: Theme.fs(10)))
+                .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

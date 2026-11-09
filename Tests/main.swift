@@ -74,8 +74,20 @@ let cardFolder = d2.appendingPathComponent("Tournage-ete/J1_2026-10-18/CamA_FX3/
 let inCard = (try? fm.contentsOfDirectory(atPath: cardFolder.path)) ?? []
 check(inCard == ["PRIVATE"], "dossier de carte identique à la carte, aucun fichier ajouté (\(inCard))")
 let reports = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []
-check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuffix(".xxh64") } && reports.contains { $0.hasSuffix("_rapport.txt") },
-      "rapports et .mhl dans Rapports_de_copie (\(reports.count) fichiers)")
+check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuffix("_rapport.pdf") } && reports.contains { $0.hasSuffix("_rapport.txt") },
+      "Rapports_de_copie : PDF + .mhl + .txt (\(reports.sorted()))")
+check(!reports.contains { $0.hasSuffix(".json") || $0.hasSuffix(".xxh64") }, "fichiers techniques (.json, .xxh64) rangés à part")
+let hiddenItems = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/.C-SAFE").path)) ?? []
+check(hiddenItems.contains(Naming.historyFile) && hiddenItems.contains { $0.hasSuffix(".xxh64") },
+      "historique et liste d'empreintes dans le dossier masqué .C-SAFE (\(hiddenItems.sorted()))")
+if let pdfName = reports.first(where: { $0.hasSuffix("_rapport.pdf") }),
+   let head = try? FileHandle(forReadingFrom: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/\(pdfName)")).read(upToCount: 5) {
+    check(String(data: head, encoding: .ascii) == "%PDF-", "le rapport PDF est un vrai PDF")
+}
+check(r1.reportPDF != nil, "le résultat donne le lien du PDF")
+let mhlName = reports.first { $0.hasSuffix(".mhl") } ?? ""
+let mhlText = (try? String(contentsOf: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/\(mhlName)"), encoding: .utf8)) ?? ""
+check(mhlText.contains("<xxhash64be>"), "MHL en xxHash64 par défaut")
 let projectItems = ((try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete").path)) ?? []).sorted()
 check(projectItems.last == "Rapports_de_copie", "Rapports_de_copie rangé après les jours (\(projectItems))")
 
@@ -222,6 +234,48 @@ let tDet = Date()
 let bigIsCard = OffloadJob.looksLikeCameraCard(big)
 let detMs = Date().timeIntervalSince(tDet) * 1000
 check(!bigIsCard && detMs < 300, String(format: "gros disque analysé en %.0f ms sans être pris pour une carte", detMs))
+
+// 10. Vérification en MD5 au choix + rapport du jour
+var rMD5: OffloadResult?
+let md5Job = OffloadJob(source: makeCard("CARTE_MD5", mb: 9), destinations: [d1, d2], project: "Tournage été", label: "CamF_FX3",
+                        day: "J1_2026-10-18", force: false) { ev in if case .finished(let r) = ev { rMD5 = r } }
+md5Job.hashKind = .md5
+md5Job.run()
+check(rMD5?.ok == true, "copie vérifiée en MD5 (\(rMD5?.message.prefix(60) ?? "?"))")
+let hidden2 = (try? fm.contentsOfDirectory(atPath: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie/.C-SAFE").path)) ?? []
+check(hidden2.contains { $0.hasSuffix("CamF_FX3_Carte01.md5") }, "liste d'empreintes .md5 quand le MD5 est choisi")
+let dayPDF = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18")
+let daySize = ((try? fm.attributesOfItem(atPath: dayPDF?.path ?? ""))?[.size] as? NSNumber)?.intValue ?? 0
+check(dayPDF != nil && daySize > 2000, "rapport du jour J1 en un seul PDF (\(daySize / 1024) Ko, \(PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).count) cartes)")
+// Historique des anciennes versions (à la vue) : relu puis rangé dans .C-SAFE
+let oldProj = base.appendingPathComponent("ANCIEN/Projet")
+try! fm.createDirectory(at: oldProj.appendingPathComponent(Naming.reportDir), withIntermediateDirectories: true)
+try! JSONEncoder().encode(["sigold": ["dossier": "J1_2026-01-01/CamA/CamA_Carte01"]])
+    .write(to: oldProj.appendingPathComponent("\(Naming.reportDir)/\(Naming.historyFile)"))
+check(History.load(oldProj)["sigold"] != nil, "ancien historique relu")
+History.update(oldProj) { $0["signew"] = ["dossier": "x"] }
+let oldGone = !fm.fileExists(atPath: oldProj.appendingPathComponent("\(Naming.reportDir)/\(Naming.historyFile)").path)
+check(oldGone && History.load(oldProj)["sigold"] != nil && History.load(oldProj)["signew"] != nil, "ancien historique fusionné et rangé dans .C-SAFE")
+
+// 11. Vraie vidéo (fabriquée par ffmpeg dans la CI) : vignette, durée, résolution, codec dans le PDF
+let sample = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("sample.mp4")
+if fm.fileExists(atPath: sample.path) {
+    let vcard = base.appendingPathComponent("CARTE_VIDEO")
+    let vclip = vcard.appendingPathComponent("PRIVATE/M4ROOT/CLIP")
+    try! fm.createDirectory(at: vclip, withIntermediateDirectories: true)
+    try! fm.copyItem(at: sample, to: vclip.appendingPathComponent("C0001.MP4"))
+    var rV: OffloadResult?
+    OffloadJob(source: vcard, destinations: [d1], project: "Tournage été", label: "CamB_FX3", day: "J2_2026-10-19",
+               force: false) { ev in if case .finished(let r) = ev { rV = r } }.run()
+    let cardsV = PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).filter { $0.day == "J2_2026-10-19" }
+    let clipV = cardsV.flatMap { $0.clips }.first { $0.name.hasSuffix("C0001.MP4") }
+    check(rV?.ok == true && clipV?.thumb != nil && clipV?.resolution == "1280×720" && clipV?.duration != nil,
+          "PDF : vignette et infos d'une vraie vidéo (\(clipV?.resolution ?? "?"), \(clipV?.fps ?? "?"), \(clipV?.codec ?? "?"))")
+    if let u = rV?.reportPDF { try? fm.copyItem(at: u, to: URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("exemple-rapport-carte.pdf")) }
+}
+if let u = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18") {
+    try? fm.copyItem(at: u, to: URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("exemple-rapport-du-jour.pdf"))
+}
 
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")

@@ -84,6 +84,16 @@ final class AppState: ObservableObject {
     @Published private(set) var manualDays: [String: Int] =
         (UserDefaults.standard.dictionary(forKey: "csafe.manualDays") as? [String: Int]) ?? [:]
     @Published private(set) var dayManual = false
+    /// Empreinte de vérification (xxHash64 par défaut) et rapport PDF à chaque carte, mémorisés
+    @Published var hashKind: HashKind = HashKind(rawValue: UserDefaults.standard.string(forKey: "csafe.hashKind") ?? "") ?? .xxh64 {
+        didSet { UserDefaults.standard.set(hashKind.rawValue, forKey: "csafe.hashKind") }
+    }
+    @Published var makePDF: Bool = UserDefaults.standard.object(forKey: "csafe.makePDF") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(makePDF, forKey: "csafe.makePDF") }
+    }
+    /// Dernier rapport PDF créé, et rapport du jour en cours de fabrication
+    @Published private(set) var lastReport: URL?
+    @Published private(set) var makingDayReport = false
     /// Jours plus récents à renuméroter si la date choisie est plus ancienne (copie en retard)
     @Published private(set) var dayShift: [DayShift] = []
     struct DayShift: Hashable { let j: Int; let date: String }
@@ -663,6 +673,51 @@ final class AppState: ObservableObject {
         if let d = try? JSONEncoder().encode(s) { UserDefaults.standard.set(d, forKey: Self.settingsKey) }
     }
 
+    // MARK: - Rapports
+
+    /// Dossier du projet sur le premier disque branché
+    var projectDirOnFirstDisk: URL? {
+        destinationURLs().first { FileManager.default.fileExists(atPath: $0.path) }?
+            .appendingPathComponent(Naming.sanitize(project))
+    }
+
+    /// Un seul PDF pour toutes les cartes du jour affiché (J1…)
+    func makeDayReport() {
+        guard let pd = projectDirOnFirstDisk, !makingDayReport else {
+            errorMessage = "Branche un disque de destination pour faire le rapport du jour."
+            return
+        }
+        let d = day
+        makingDayReport = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let url = PDFReport.dayReport(projectDir: pd, day: d)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.makingDayReport = false
+                    if let url {
+                        self.lastReport = url
+                        self.addLog("Rapport du jour : \(url.lastPathComponent)")
+                        self.openReport(url)
+                    } else {
+                        self.errorMessage = "Aucune carte copiée avec rapport pour \(d) sur ce disque."
+                    }
+                }
+            }
+        }
+    }
+
+    func openReport(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
+    func revealReport(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+        #endif
+    }
+
     // MARK: - Jour choisi à la main
 
     private var manualDayKey: String { Naming.sanitize(project) + "|" + dateString }
@@ -932,6 +987,8 @@ final class AppState: ObservableObject {
                 MainActor.assumeIsolated { self?.handle(ev, path: path) }
             }
         }
+        newJob.hashKind = hashKind
+        newJob.makePDF = makePDF
         jobs[path] = (newJob, item)
         DispatchQueue.global(qos: .userInitiated).async { newJob.run() }
     }
@@ -1029,6 +1086,7 @@ final class AppState: ObservableObject {
             duplicatePrompt = r
         } else if r.ok {
             addLog("✓ " + r.message)
+            if let u = r.reportPDF { lastReport = u; addLog("Rapport PDF : \(u.lastPathComponent)") }
             if running.isEmpty { status = "Terminé — \(r.name)" }
             progressText = "\(r.name) : copié et vérifié sur tous les disques"
             lastSuccess = true
