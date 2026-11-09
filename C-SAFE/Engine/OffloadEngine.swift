@@ -451,6 +451,7 @@ final class OffloadJob {
                 if let m = attrs?[.modificationDate] { keep[.modificationDate] = m }
                 if let c = attrs?[.creationDate] { keep[.creationDate] = c }
                 if !keep.isEmpty { try? fm.setAttributes(keep, ofItemAtPath: t.path) }
+                Self.copyHidden(from: f.url, to: t)
             }
             hashes[f.rel] = hasher.hex()
         }
@@ -470,8 +471,10 @@ final class OffloadJob {
             var keep: [FileAttributeKey: Any] = [:]
             if let m = a[.modificationDate] { keep[.modificationDate] = m }
             if let c = a[.creationDate] { keep[.creationDate] = c }
-            for t in plan.targets where !keep.isEmpty {
-                try? fm.setAttributes(keep, ofItemAtPath: t.appendingPathComponent(rel).path)
+            for t in plan.targets {
+                if !keep.isEmpty { try? fm.setAttributes(keep, ofItemAtPath: t.appendingPathComponent(rel).path) }
+                // Dossiers masqués sur la carte (ex. AVF_INFO des Sony) : masqués aussi sur les disques
+                Self.copyHidden(from: source.appendingPathComponent(rel), to: t.appendingPathComponent(rel))
             }
         }
         let copySeconds = Date().timeIntervalSince(t0)
@@ -931,6 +934,16 @@ final class OffloadJob {
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = format
         return f.string(from: d)
+    }
+
+    /// Recopie l'attribut « masqué » (invisible dans le Finder) de la carte vers la copie
+    static func copyHidden(from src: URL, to dst: URL) {
+        guard (try? src.resourceValues(forKeys: [.isHiddenKey]))?.isHidden == true,
+              !src.lastPathComponent.hasPrefix(".") else { return }
+        var v = URLResourceValues()
+        v.isHidden = true
+        var d = dst
+        try? d.setResourceValues(v)
     }
 
     static func human(_ n: Int64) -> String {

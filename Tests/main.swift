@@ -277,6 +277,19 @@ if let u = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-e
     try? fm.copyItem(at: u, to: URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("exemple-rapport-du-jour.pdf"))
 }
 
+// 12. Dossier masqué sur la carte (AVF_INFO des Sony) : reste masqué sur les disques
+let hcard = base.appendingPathComponent("CARTE_SONY_MASQUE")
+touch(hcard.appendingPathComponent("M4ROOT/CLIP/C0001.MP4"))
+touch(hcard.appendingPathComponent("AVF_INFO/AVIN0001.BNP"))
+var hv = URLResourceValues(); hv.isHidden = true
+var avf = hcard.appendingPathComponent("AVF_INFO"); try? avf.setResourceValues(hv)
+var rH: OffloadResult?
+OffloadJob(source: hcard, destinations: [d1], project: "Tournage été", label: "CamC_FX3", day: "J2_2026-10-19",
+           force: false) { ev in if case .finished(let r) = ev { rH = r } }.run()
+let avfCopy = d1.appendingPathComponent("Tournage-ete/\(rH?.display ?? "")/AVF_INFO")
+check(rH?.ok == true && (try? avfCopy.resourceValues(forKeys: [.isHiddenKey]))?.isHidden == true,
+      "AVF_INFO masqué sur la carte reste masqué dans la copie")
+
 // 4. Jours de tournage dans l'ordre des dates
 let dz = base.appendingPathComponent("SSD_JOURS")
 let pj = dz.appendingPathComponent("Film")
