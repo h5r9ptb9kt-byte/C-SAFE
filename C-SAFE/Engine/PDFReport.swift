@@ -822,10 +822,10 @@ enum PDFReport {
                 }
                 var details: [String] = []
                 if let d = clip.duration { details.append(durationText(d)) }
+                if let n = clip.note { details.append(n) }
                 if let r = clip.resolution { details.append(r) }
                 if let f = clip.fps { details.append(f) }
                 if let k = clip.codec { details.append(k) }
-                if let n = clip.note { details.append(n) }
                 page.text(details.joined(separator: " · "), x: tx, top: top + 28, size: 7.5, color: ink, maxWidth: tw, truncateEnd: true)
                 page.text(clip.hash, x: tx, top: top + 39, size: 6.5, mono: true, color: gray, maxWidth: tw)
             }
