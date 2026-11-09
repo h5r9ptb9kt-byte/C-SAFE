@@ -277,6 +277,75 @@ enum PDFReport {
         return (frames, rate, t.drop, camera.isEmpty ? nil : camera, lens, slowmo)
     }
 
+    /// Piste timecode (tmcd) lue directement dans le fichier MOV/MP4 (sans AVFoundation)
+    static func movTimecode(_ url: URL) -> (frames: Int, rate: Int, drop: Bool)? {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? h.close() }
+        func be32(_ d: Data, _ o: Int) -> UInt32 { d.subdata(in: o..<o + 4).reduce(0) { $0 << 8 | UInt32($1) } }
+        func be64(_ d: Data, _ o: Int) -> UInt64 { d.subdata(in: o..<o + 8).reduce(0) { $0 << 8 | UInt64($1) } }
+        // 1. Trouver « moov » parmi les boîtes du premier niveau
+        let fileSize = (try? h.seekToEnd()) ?? 0
+        var off: UInt64 = 0
+        var moov: Data?
+        while off + 8 <= fileSize {
+            try? h.seek(toOffset: off)
+            guard let hd = try? h.read(upToCount: 16), hd.count >= 8 else { break }
+            var size = UInt64(be32(hd, 0)), headerLen: UInt64 = 8
+            let type = String(data: hd.subdata(in: 4..<8), encoding: .ascii) ?? ""
+            if size == 1, hd.count >= 16 { size = be64(hd, 8); headerLen = 16 }
+            if size == 0 { size = fileSize - off }
+            if size < headerLen { break }
+            if type == "moov" {
+                guard size < 64 << 20 else { return nil }
+                try? h.seek(toOffset: off + headerLen)
+                moov = try? h.read(upToCount: Int(size - headerLen))
+                break
+            }
+            off += size
+        }
+        guard let moov else { return nil }
+        // 2. Boîtes enfants d'une plage de données
+        func children(_ d: Data, _ range: Range<Int>) -> [(type: String, body: Range<Int>)] {
+            var out: [(String, Range<Int>)] = []
+            var o = range.lowerBound
+            while o + 8 <= range.upperBound {
+                var size = Int(be32(d, o)), hl = 8
+                let type = String(data: d.subdata(in: o + 4..<o + 8), encoding: .ascii) ?? ""
+                if size == 1, o + 16 <= range.upperBound { size = Int(be64(d, o + 8)); hl = 16 }
+                if size == 0 { size = range.upperBound - o }
+                if size < hl || o + size > range.upperBound { break }
+                out.append((type, o + hl..<o + size))
+                o += size
+            }
+            return out
+        }
+        func find(_ d: Data, _ r: Range<Int>, _ path: [String]) -> Range<Int>? {
+            guard let first = path.first else { return r }
+            for c in children(d, r) where c.type == first {
+                if let f = find(d, c.body, Array(path.dropFirst())) { return f }
+            }
+            return nil
+        }
+        for trak in children(moov, 0..<moov.count) where trak.type == "trak" {
+            guard let hdlr = find(moov, trak.body, ["mdia", "hdlr"]), hdlr.count >= 12,
+                  String(data: moov.subdata(in: hdlr.lowerBound + 8..<hdlr.lowerBound + 12), encoding: .ascii) == "tmcd",
+                  let stbl = find(moov, trak.body, ["mdia", "minf", "stbl"]),
+                  let stsd = find(moov, stbl, ["stsd"]), stsd.count >= 8 + 8 + 27 else { continue }
+            let e = stsd.lowerBound + 8   // début de la 1re entrée
+            guard String(data: moov.subdata(in: e + 4..<e + 8), encoding: .ascii) == "tmcd" else { continue }
+            let flags = be32(moov, e + 8 + 6 + 2 + 4)
+            let quanta = Int(moov[e + 8 + 6 + 2 + 4 + 4 + 4 + 4])
+            var chunk: UInt64?
+            if let stco = find(moov, stbl, ["stco"]), stco.count >= 12 { chunk = UInt64(be32(moov, stco.lowerBound + 8)) }
+            else if let co64 = find(moov, stbl, ["co64"]), co64.count >= 16 { chunk = be64(moov, co64.lowerBound + 8) }
+            guard let chunk, quanta > 0 else { continue }
+            try? h.seek(toOffset: chunk)
+            guard let v = try? h.read(upToCount: 4), v.count == 4 else { continue }
+            return (Int(Int32(bitPattern: be32(v, 0))), quanta, flags & 1 != 0)
+        }
+        return nil
+    }
+
     /// Piste timecode (tmcd) d'un MP4/MOV
     static func trackTimecode(_ asset: AVAsset) -> (frames: Int, rate: Int, drop: Bool)? {
         guard let track = asset.tracks(withMediaType: .timecode).first,
@@ -370,7 +439,7 @@ enum PDFReport {
         }
         // Timecode : piste du fichier, sinon XML Sony
         let sony = sonyXML(for: url)
-        if let tc = trackTimecode(asset) {
+        if let tc = movTimecode(url) ?? trackTimecode(asset) {
             clip.tcFrames = tc.frames; clip.tcRate = tc.rate; clip.tcDrop = tc.drop
         } else if let s = sony, s.rate > 0 {
             clip.tcFrames = s.frames; clip.tcRate = s.rate; clip.tcDrop = s.drop
