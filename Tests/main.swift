@@ -248,6 +248,8 @@ let mhlMD5 = rep2.first { $0.contains("CamF_FX3_Carte01") && $0.hasSuffix(".mhl"
 check(mhlMD5.contains("<md5>"), "MHL en MD5 quand le MD5 est choisi")
 let dayPDF = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18")
 let daySize = ((try? fm.attributesOfItem(atPath: dayPDF?.path ?? ""))?[.size] as? NSNumber)?.intValue ?? 0
+check(PDFReport.savedCardCount(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18") >= 7,
+      "compteur : cartes prêtes pour le rapport du jour")
 check(dayPDF != nil && daySize > 2000, "rapport du jour J1 en un seul PDF (\(daySize / 1024) Ko, \(PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).count) cartes)")
 // Historique des anciennes versions (à la vue) : relu puis rangé dans .C-SAFE
 let oldProj = base.appendingPathComponent("ANCIEN/Projet")

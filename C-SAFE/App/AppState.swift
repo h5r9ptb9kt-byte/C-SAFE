@@ -94,6 +94,14 @@ final class AppState: ObservableObject {
     /// Dernier rapport PDF créé, et rapport du jour en cours de fabrication
     @Published private(set) var lastReport: URL?
     @Published private(set) var makingDayReport = false
+    @Published private(set) var dayReportStart: Date?
+
+    /// Cartes prêtes pour le rapport du jour affiché, et durée estimée (≈ 1 s par carte, mise en page seulement)
+    var dayReportCards: Int {
+        guard let pd = projectDirOnFirstDisk else { return 0 }
+        return PDFReport.savedCardCount(projectDir: pd, day: day)
+    }
+    var dayReportEstimate: Int { max(2, dayReportCards) }
     /// Jours plus récents à renuméroter si la date choisie est plus ancienne (copie en retard)
     @Published private(set) var dayShift: [DayShift] = []
     struct DayShift: Hashable { let j: Int; let date: String }
@@ -689,12 +697,16 @@ final class AppState: ObservableObject {
         }
         let d = day
         makingDayReport = true
+        dayReportStart = Date()
         DispatchQueue.global(qos: .userInitiated).async {
             let url = PDFReport.dayReport(projectDir: pd, day: d)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.makingDayReport = false
+                    let took = Int(Date().timeIntervalSince(self.dayReportStart ?? Date()).rounded())
+                    self.dayReportStart = nil
                     if let url {
+                        self.addLog("Rapport du jour fait en \(took) s.")
                         self.lastReport = url
                         self.addLog("Rapport du jour : \(url.lastPathComponent)")
                         self.openReport(url)
@@ -1055,7 +1067,12 @@ final class AppState: ObservableObject {
             let p = Double(doneBytes) / Double(total)
             let remaining = bps > 0 ? Double(total - doneBytes) / bps : 0
             running[path]?.progress = p
-            running[path]?.text = "\(phase) · \(Int(p * 100)) % · \(OffloadJob.human(Int64(bps)))/s · reste \(Self.duration(remaining))"
+            if phase.hasPrefix("Rapport") {
+                // bps = clips par seconde ici
+                running[path]?.text = "Rapport PDF · clip \(doneBytes)/\(total)" + (doneBytes > 0 && bps > 0 ? " · reste ≈ \(Self.duration(remaining))" : " · vignettes en cours")
+            } else {
+                running[path]?.text = "\(phase) · \(Int(p * 100)) % · \(OffloadJob.human(Int64(bps)))/s · reste \(Self.duration(remaining))"
+            }
         case .finished(let r):
             finish(r, path: path)
         }

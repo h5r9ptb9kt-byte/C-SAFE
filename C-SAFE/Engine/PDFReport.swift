@@ -51,9 +51,12 @@ enum PDFReport {
 
     /// Analyse les clips copiés (sur le premier disque, déjà vérifié) : vignettes + infos techniques.
     static func prepare(_ base: CardData, cardFolder: URL, files: [(rel: String, size: Int64)],
-                        hashes: [String: String]) -> CardData {
+                        hashes: [String: String], progress: ((Int, Int) -> Void)? = nil) -> CardData {
         var data = base
         var extra = 0
+        let media = files.filter { isMedia($0.rel) }.count
+        var done = 0
+        progress?(0, media)
         for f in files {
             let ext = (f.rel as NSString).pathExtension.lowercased()
             let url = cardFolder.appendingPathComponent(f.rel)
@@ -72,6 +75,8 @@ enum PDFReport {
                 continue
             }
             data.clips.append(clip)
+            done += 1
+            progress?(done, media)
         }
         data.extraFiles = extra
         return data
@@ -98,6 +103,18 @@ enum PDFReport {
         guard !cards.isEmpty else { return nil }
         let pdf = rd.appendingPathComponent("\(day)_rapport_du_jour.pdf")
         return render(title: "Rapport du jour — \(day)", subtitle: cards[0].project, cards: cards, dayMode: true, to: pdf) ? pdf : nil
+    }
+
+    static func isMedia(_ rel: String) -> Bool {
+        let ext = (rel as NSString).pathExtension.lowercased()
+        return videoExt.contains(ext) || photoExt.contains(ext) || audioExt.contains(ext)
+    }
+
+    /// Nombre de cartes déjà prêtes pour le rapport du jour (sans les relire)
+    static func savedCardCount(projectDir: URL, day: String) -> Int {
+        let store = projectDir.appendingPathComponent(Naming.reportDir)
+            .appendingPathComponent(Naming.hiddenDir).appendingPathComponent("rapports")
+        return Naming.list(store).filter { $0.hasPrefix(day + "_") && $0.hasSuffix(".json") }.count
     }
 
     static func savedCards(projectDir: URL) -> [CardData] {

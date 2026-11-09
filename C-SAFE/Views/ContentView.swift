@@ -911,15 +911,25 @@ struct ReportsPanel: View {
                     #endif
                 }
             }
+            let cards = state.dayReportCards
             Button { state.makeDayReport() } label: {
-                if state.makingDayReport {
-                    Label("Rapport du jour en cours…", systemImage: "hourglass")
+                if state.makingDayReport, let start = state.dayReportStart {
+                    TimelineView(.periodic(from: start, by: 1)) { ctx in
+                        let s = Int(ctx.date.timeIntervalSince(start))
+                        Label("Rapport du jour… \(s) s / ≈ \(state.dayReportEstimate) s", systemImage: "hourglass")
+                    }
                 } else {
                     Label("Rapport du jour \(state.shootDay.map { "J\($0)" } ?? "") : toutes les cartes en un PDF", systemImage: "doc.on.doc")
                 }
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(state.busy || state.makingDayReport)
+            .disabled(state.busy || state.makingDayReport || cards == 0)
+            Text(cards == 0
+                 ? "À faire le soir, quand toutes les cartes du jour sont copiées. Aucune carte avec rapport pour ce jour sur le premier disque."
+                 : "À faire le soir : \(cards) carte(s) prête(s) · environ \(state.dayReportEstimate) s (les vignettes sont déjà faites). Le PDF de chaque carte, lui, se fait tout seul après sa copie.")
+                .font(.system(size: Theme.fs(10)))
+                .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
             Text("Dans Rapports_de_copie : le PDF à lire, le .mhl (standard DIT, relu par Silverstack, ShotPut, Hedge) et le .txt. Les fichiers techniques sont rangés dans le sous-dossier masqué .C-SAFE.")
                 .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)

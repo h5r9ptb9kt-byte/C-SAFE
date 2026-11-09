@@ -582,8 +582,11 @@ final class OffloadJob {
                 seconds: Int(elapsed), speed: Int64(speed), hash: hashKind.title, verified: allOK,
                 destinations: zip(plan.targets, allResults).map { ($0.0.path, $0.1.isEmpty) }.map { "\($0.1 ? "OK" : "ERREUR") · \($0.0)" },
                 clips: [])
+            let pdfStart = Date()
             let reportInfo = PDFReport.prepare(data, cardFolder: plan.targets[0], files: files.map { (rel: $0.rel, size: $0.size) },
-                                               hashes: hashes)
+                                               hashes: hashes) { [weak self] done, count in
+                self?.progress("Rapport PDF", Int64(done), Int64(max(count, 1)), since: pdfStart, force: done == count)
+            }
             for pd in projectDirs {
                 if let u = PDFReport.write(reportInfo, projectDir: pd, reportName: reportName) {
                     if pdfURL == nil { pdfURL = u }
