@@ -51,7 +51,11 @@ jobs:
       - name: Tester le moteur de copie (2 Go, mémoire, vitesse, corbeille)
         run: |
           set -o pipefail
-          command -v ffmpeg >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 timeout 600 brew install ffmpeg >/dev/null 2>&1 || true
+          if ! command -v ffmpeg >/dev/null; then
+            mkdir -p "$HOME/bin"
+            curl -fsSL https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-arm64.gz | gunzip > "$HOME/bin/ffmpeg" && chmod +x "$HOME/bin/ffmpeg" && export PATH="$HOME/bin:$PATH" || true
+            "$HOME/bin/ffmpeg" -version 2>&1 | head -1 || true
+          fi
           if command -v ffmpeg >/dev/null; then
             mkdir -p media
             F="ffmpeg -loglevel error -y"
