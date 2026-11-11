@@ -120,6 +120,27 @@ jobs:
           Write-Output "::notice title=INSTALLATEUR::C-SAFE-Setup.exe $((Get-Item sortie\C-SAFE-Setup.exe).Length) octets, SHA-256 $h"
         id: setup
 
+      - name: Tester l'installateur (installation silencieuse, lancement, recherche de mise à jour)
+        if: steps.tests.outcome == 'success'
+        run: |
+          $p = Start-Process sortie\C-SAFE-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\C-SAFE\C-SAFE.exe"
+          if (-not (Test-Path $exe)) { Write-Output "::error title=INSTALL::C-SAFE.exe absent après installation"; exit 1 }
+          if (-not (Test-Path "$env:LOCALAPPDATA\Programs\C-SAFE\ffmpeg\ffprobe.exe")) { Write-Output "::error title=INSTALL::ffprobe absent"; exit 1 }
+          $v = (Get-Item $exe).VersionInfo.ProductVersion
+          Write-Output "::notice title=INSTALL::C-SAFE installé, version $v"
+          $env:CSAFE_UPDATECHECK = "$PWD\maj.txt"
+          $q = Start-Process $exe -PassThru
+          if (-not $q.WaitForExit(60000)) { $q.Kill(); Write-Output "::error title=MAJ::pas de réponse"; exit 1 }
+          $r = Get-Content maj.txt
+          Write-Output "::notice title=MAJ::$r"
+          if ($r -notmatch '^OK ') { exit 1 }
+          Remove-Item Env:CSAFE_UPDATECHECK
+          $env:CSAFE_SCREENSHOT = "$PWD\exemples\capture-installee.png"
+          $q = Start-Process $exe -PassThru
+          if (-not $q.WaitForExit(90000)) { $q.Kill(); Write-Output "::error title=INSTALL::l'app installée ne répond pas"; exit 1 }
+          if (-not (Test-Path exemples\capture-installee.png)) { Write-Output "::error title=INSTALL::pas de capture depuis l'app installée"; exit 1 }
+
       - name: Publier la version PC
         if: steps.tests.outcome == 'success'
         uses: softprops/action-gh-release@v2

@@ -92,7 +92,12 @@ public sealed class MainWindow : Window
         redraw = new DispatcherTimer(TimeSpan.FromMilliseconds(150), DispatcherPriority.Background, (_, _) => Tick(), Dispatcher);
         redraw.Start();
         SizeChanged += (_, e) => { if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 1) dirty = true; };
-        SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WndProc);
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
+            try { int dark = 1; DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int)); } catch { }   // barre de titre sombre
+        };
         Closing += (_, e) =>
         {
             if (state.Busy && MessageBox.Show(this, "Une copie est en cours. Quitter quand même ? La copie sera arrêtée et marquée « _INCOMPLET ».",
@@ -101,6 +106,9 @@ public sealed class MainWindow : Window
         };
         Rebuild();
     }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     static FrameworkElement Spaced(FrameworkElement e) { e.Margin = new Thickness(0, 8, 0, 0); return e; }
 

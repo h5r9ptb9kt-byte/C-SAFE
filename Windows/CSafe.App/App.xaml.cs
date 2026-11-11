@@ -27,6 +27,15 @@ public partial class App : Application
             ex.Handled = true;
         };
 
+        // Test automatique du bouton « Mise à jour » : cherche la dernière version, écrit le résultat et quitte
+        var upd = Environment.GetEnvironmentVariable("CSAFE_UPDATECHECK");
+        if (!string.IsNullOrEmpty(upd))
+        {
+            var (found, error) = Updater.Check();
+            File.WriteAllText(upd, found != null ? $"OK {found.Version} {found.Build} {found.Url ?? found.LocalPath} (app {Updater.CurrentVersion})" : $"ERREUR {error}");
+            Environment.Exit(0);
+        }
+
         var w = new MainWindow();
         MainWindow = w;
         w.Show();

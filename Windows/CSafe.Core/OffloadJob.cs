@@ -241,10 +241,12 @@ public sealed class OffloadJob
                     ProgressEv("Copie", done, total, copyStart);
                 });
                 // Les données vont vraiment sur les disques avant la vérification
-                Parallel.ForEach(outs, o =>
+                Parallel.For(0, outs.Count, k =>
                 {
-                    using var fs = new FileStream(o, FileAccess.Write, 1);
+                    var sw = Stopwatch.StartNew();
+                    using var fs = new FileStream(outs[k], FileAccess.Write, 1);
                     fs.Flush(true);
+                    stats.AddWrite(sw.Elapsed.TotalSeconds, k);
                 });
                 outs.Clear();
             }
