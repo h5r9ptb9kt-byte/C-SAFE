@@ -201,6 +201,7 @@ public sealed class OffloadJob
             foreach (var t in targets) Directory.CreateDirectory(Path.GetDirectoryName(t)!);
             var tmps = targets.Select(t => t + ".partial").ToList();
             var outs = new List<SafeFileHandle>();
+            var hasher = new FileHasher(HashKind);
             try
             {
                 foreach (var tmp in tmps)
@@ -211,7 +212,6 @@ public sealed class OffloadJob
                     }
                     catch (Exception e) { throw new OffloadException($"impossible d'écrire {Path.GetFileName(tmp)} sur {Path.GetDirectoryName(tmp)} ({e.Message})."); }
                 }
-                var hasher = new FileHasher(HashKind);
                 // Pipeline : morceaux de la carte lus en avance pendant que le morceau courant s'écrit sur tous
                 // les disques ET que son empreinte se calcule. Mémoire stable : ~4 morceaux de 16 Mo par copie.
                 ReadAhead.Stream(f.Path, ChunkSize, 4, true, stats, Check, chunk =>

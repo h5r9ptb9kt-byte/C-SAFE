@@ -458,7 +458,7 @@ public static class PdfReport
         static float Measure(string s, SKTypeface primary, float size)
         {
             float w = 0;
-            foreach (var (t, tf) in Runs(s, primary)) { using var f = new SKFont(tf, size); w += f.MeasureText(t); }
+            foreach (var (t, tf) in Runs(s, primary)) { using var p = new SKPaint { Typeface = tf, TextSize = size }; w += p.MeasureText(t); }
             return w;
         }
 
@@ -485,12 +485,11 @@ public static class PdfReport
             float width = Measure(line, tf, size);
             float px = alignRight ? x - width : x;
             float baseline = top + size;
-            using var paint = new SKPaint { Color = color ?? Ink, IsAntialias = true };
             foreach (var (t, f) in Runs(line, tf))
             {
-                using var font = new SKFont(f, size);
-                C!.DrawText(t, px, baseline, font, paint);
-                px += font.MeasureText(t);
+                using var paint = new SKPaint { Color = color ?? Ink, IsAntialias = true, Typeface = f, TextSize = size, SubpixelText = true };
+                C!.DrawText(t, px, baseline, paint);
+                px += paint.MeasureText(t);
             }
             return width;
         }
