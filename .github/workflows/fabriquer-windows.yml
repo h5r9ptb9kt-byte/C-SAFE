@@ -9,6 +9,7 @@ on:
     paths:
       - "Windows/**"
       - "Tests/fixtures/**"
+      - "Distribution/Installer C-SAFE sur PC.pdf"
       - ".github/workflows/fabriquer-windows.yml"
   workflow_dispatch:
 
@@ -156,10 +157,13 @@ jobs:
                cliquer « Informations complémentaires », puis « Exécuter quand même ».
             3. Suivre l'installation : C-SAFE apparaît dans le menu Démarrer (et sur le Bureau si coché).
 
+            Guide illustré : « Installer C-SAFE sur PC.pdf ».
             Les mises à jour suivantes : bouton « Mise à jour » dans C-SAFE.
 
             Empreinte SHA-256 de C-SAFE-Setup.exe : ${{ steps.setup.outputs.sha }}
-          files: sortie/C-SAFE-Setup.exe
+          files: |
+            sortie/C-SAFE-Setup.exe
+            Distribution/Installer C-SAFE sur PC.pdf
 
       - name: Tests en échec
         if: steps.tests.outcome != 'success'

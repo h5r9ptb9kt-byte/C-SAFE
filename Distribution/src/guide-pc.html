@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Installer C-SAFE sur PC</title>
+<style>
+@page { size: A4; margin: 14mm; }
+:root{--bg:#0F1924;--orange:#E8742A;--cyan:#2A9FD6;--green:#3CCB8F;--red:#E5534B;--cream:#F1EAD6;--muted:#8FA6BD;}
+*{box-sizing:border-box}
+body{font-family:"Segoe UI","Inter","DejaVu Sans",Arial,sans-serif;color:#1d2733;margin:0;font-size:12pt;line-height:1.45}
+header{background:var(--bg);color:var(--cream);border-radius:14px;padding:18px 22px;display:flex;align-items:center;gap:18px}
+header img{width:70px;height:70px;border-radius:50%}
+header h1{margin:0;font-size:23pt}header h1 span{color:var(--orange)}
+header p{margin:4px 0 0;color:var(--muted);font-size:10.5pt}
+.step{display:flex;gap:14px;margin:18px 0;page-break-inside:avoid}
+.num{flex:0 0 32px;height:32px;border-radius:50%;background:var(--orange);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:13pt}
+.body h2{margin:3px 0 4px;font-size:13.5pt}.body p{margin:0 0 7px}
+.box{border-radius:10px;padding:10px 14px;margin:10px 0;page-break-inside:avoid}
+.ok{background:#e9f8f1;border:1px solid #bfe9d5}.tip{background:#fff6ee;border:1px solid #f4d2b6}
+.ss{width:360px;border:1px solid #c9d3dc;border-radius:4px;background:#0067b8;color:#fff;padding:16px 18px;font-size:10.5pt;margin:6px 0}
+.ss h3{margin:0 0 10px;font-size:15pt;font-weight:400}
+.ss .lnk{text-decoration:underline}
+.ss .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.ss .b{border:2px solid #fff;padding:4px 14px}.ss .hl{outline:3px solid var(--orange);outline-offset:2px}
+.two{display:flex;gap:18px;align-items:flex-start}
+.shot{width:300px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
+footer{margin-top:16px;color:#7b8a99;font-size:9pt;text-align:center}
+.pb{page-break-before:always}
+</style></head><body>
+<header><img src="icon.png"><div><h1>Installer <span>C-SAFE</span> sur PC</h1>
+<p>Windows 10 ou 11 (64 bits) · aucune autorisation administrateur nécessaire · gratuit</p></div></header>
+
+<div class="step"><div class="num">1</div><div class="body">
+<h2>Télécharger et ouvrir « C-SAFE-Setup.exe »</h2>
+<p>Double-clique sur le fichier reçu (ou téléchargé). L'installateur est en français.</p></div></div>
+
+<div class="step"><div class="num">2</div><div class="body">
+<h2>Passer l'écran bleu de Windows</h2>
+<p>C-SAFE n'est pas vendu dans une boutique : Windows ne le connaît pas et affiche cet écran. C'est normal.</p>
+<div class="two">
+<div class="ss"><h3>Windows a protégé votre ordinateur</h3>
+<div>Microsoft Defender SmartScreen a empêché le démarrage d'une application non reconnue…</div>
+<div style="margin-top:8px" class="lnk hl">Informations complémentaires</div>
+<div class="btns"><span class="b">Ne pas exécuter</span></div></div>
+<div class="ss"><h3>Windows a protégé votre ordinateur</h3>
+<div>Application : C-SAFE-Setup.exe<br>Éditeur : Éditeur inconnu</div>
+<div class="btns"><span class="b hl">Exécuter quand même</span><span class="b">Ne pas exécuter</span></div></div>
+</div>
+<p>Clique <b>« Informations complémentaires »</b>, puis <b>« Exécuter quand même »</b>.</p></div></div>
+
+<div class="step"><div class="num">3</div><div class="body">
+<h2>Suivre l'installation</h2>
+<p>Coche « Créer une icône sur le Bureau » si tu veux, puis <b>Installer</b> et <b>Terminer</b>. C-SAFE s'ouvre et se trouve dans le menu Démarrer.</p></div></div>
+
+<div class="box ok"><b>Vérification de sécurité (facultatif).</b> L'empreinte SHA-256 du fichier est indiquée sur la page de la version.
+Pour la comparer : clic droit sur le menu Démarrer › Terminal, puis <code style="background:#1d2733;color:#F1EAD6;padding:2px 6px;border-radius:4px">Get-FileHash C-SAFE-Setup.exe</code></div>
+
+<div class="pb"></div>
+<header><img src="icon.png"><div><h1>Première copie</h1><p>Comme sur Mac : mêmes dossiers, mêmes rapports, mêmes disques.</p></div></header>
+<div class="two" style="margin-top:14px">
+<img class="shot" src="pc-app.png">
+<div>
+<div class="step"><div class="num">1</div><div class="body"><h2>Ajouter 2 disques</h2><p>« Ajouter un disque » : choisis chaque disque de sauvegarde (ou un dossier dessus).</p></div></div>
+<div class="step"><div class="num">2</div><div class="body"><h2>Brancher la carte</h2><p>Elle apparaît toute seule dans « Source ». Vérifie la caméra (CamA, CamB, SON…) et le modèle.</p></div></div>
+<div class="step"><div class="num">3</div><div class="body"><h2>« Démarrer la copie »</h2><p>La carte est copiée sur les 2 disques en même temps, puis chaque fichier est relu et vérifié. Rien ne part tout seul.</p></div></div>
+<div class="step"><div class="num">4</div><div class="body"><h2>Le rapport</h2><p>Dans « Rapports_de_copie » : PDF avec vignettes et timecode, .mhl et .txt. Le soir : « Rapport du jour ».</p></div></div>
+</div></div>
+<div class="box tip"><b>Mac et PC ensemble.</b> Un disque rempli sur Mac peut être branché sur PC (et l'inverse) : C-SAFE reconnaît les cartes déjà copiées, continue la numérotation des jours et des cartes, et le rapport du jour réunit les cartes copiées sur les deux. Disques conseillés : formatés en <b>exFAT</b> (lisibles par Mac et PC).</div>
+<div class="box tip"><b>Mises à jour.</b> Bouton « Mise à jour » en haut de C-SAFE : il télécharge la nouvelle version, l'installe et rouvre l'app. Tes réglages sont gardés.</div>
+<footer>C-SAFE · par C-FOCUS</footer>
+</body></html>
