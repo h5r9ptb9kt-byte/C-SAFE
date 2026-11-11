@@ -1,0 +1,145 @@
+# Fabrique automatiquement C-SAFE pour Windows sur un PC Windows de GitHub :
+# tests du moteur (copies réelles, vérification, PDF avec vraies vidéos), capture d'écran de l'app,
+# installateur « C-SAFE-Setup.exe » publié dans la version « pc-version-N ».
+name: Fabriquer C-SAFE (Windows)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Windows/**"
+      - "Tests/fixtures/**"
+      - ".github/workflows/fabriquer-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - name: Récupérer le projet
+        uses: actions/checkout@v4
+
+      - name: .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: ffmpeg / ffprobe (licence LGPL, livrés avec C-SAFE pour les vignettes et les infos des clips)
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip -OutFile ff.zip
+          Expand-Archive ff.zip -DestinationPath ffx
+          $bin = (Get-ChildItem ffx -Recurse -Filter ffprobe.exe | Select-Object -First 1).DirectoryName
+          New-Item -ItemType Directory -Force ffmpeg | Out-Null
+          Get-ChildItem $bin | Where-Object { $_.Name -ne 'ffplay.exe' } | Copy-Item -Destination ffmpeg
+          $lic = (Get-ChildItem ffx -Recurse -Filter LICENSE.txt | Select-Object -First 1)
+          if ($lic) { Copy-Item $lic.FullName ffmpeg\LICENSE-ffmpeg.txt }
+          & .\ffmpeg\ffmpeg.exe -version | Select-Object -First 1
+
+      - name: Vidéos et sons de test (avec timecode)
+        run: |
+          New-Item -ItemType Directory -Force media | Out-Null
+          $F = ".\ffmpeg\ffmpeg.exe"
+          & $F -v error -y -f lavfi -i testsrc=size=1920x1080:rate=25 -t 3 -pix_fmt yuv420p -c:v mpeg4 -q:v 6 media\a1.mp4
+          & $F -v error -y -f lavfi -i smptehdbars=size=1920x1080:rate=25 -t 3 -pix_fmt yuv420p -c:v mpeg4 -q:v 6 media\a2.mp4
+          & $F -v error -y -f lavfi -i "mandelbrot=size=1920x1080:rate=25" -t 3 -pix_fmt yuv420p -c:v mpeg4 -q:v 6 media\a3.mp4
+          & $F -v error -y -f lavfi -i testsrc2=size=1920x1080:rate=25 -t 6 -pix_fmt yuv420p -c:v mpeg4 -q:v 6 -timecode 10:16:31:00 media\b1.mov
+          & $F -v error -y -f lavfi -i "cellauto=s=1920x1080:rate=25" -t 4 -pix_fmt yuv420p -c:v mpeg4 -q:v 6 -timecode 10:20:05:00 media\b2.mov
+          & $F -v error -y -f lavfi -i "sine=frequency=440:sample_rate=48000" -t 10 -c:a pcm_s24le -write_bext 1 -metadata time_reference=1775424000 media\son.wav
+          & $F -v error -y -f lavfi -i testsrc=size=160x90 -frames:v 1 media\thumb.jpg
+          & $F -v error -y -f lavfi -i "mandelbrot=size=1600x1066" -frames:v 1 media\photo.jpg
+          Get-ChildItem media | Format-Table Name, Length
+
+      - name: Tester le moteur (copies réelles, vérification, rapports, timecode)
+        id: tests
+        continue-on-error: true
+        run: |
+          $env:CSAFE_FFMPEG = "$PWD\ffmpeg"
+          dotnet run --project Windows\CSafe.Tests\CSafe.Tests.csproj -c Release 2>&1 | Tee-Object -FilePath test.log
+          $code = $LASTEXITCODE
+          Get-Content test.log | Where-Object { $_ -match '^(TEST ÉCHEC|BILAN|error)' } | ForEach-Object { Write-Output "::error title=TEST::$_" }
+          Get-Content test.log | Select-Object -Last 3 | ForEach-Object { Write-Output "::warning title=TEST-FIN::$_" }
+          exit $code
+
+      - name: Fabriquer l'application
+        run: |
+          $v = "1.${{ github.run_number }}"
+          dotnet publish Windows\CSafe.App\CSafe.App.csproj -c Release -r win-x64 --self-contained true -p:Version=$v -p:AssemblyVersion="$v.0.0" -p:FileVersion="$v.0.0" -o publication 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content build.log | Where-Object { $_ -match 'error' } | Select-Object -First 40 | ForEach-Object { Write-Output "::error title=CS::$_" }
+            exit 1
+          }
+          Copy-Item -Recurse ffmpeg publication\ffmpeg
+          Get-ChildItem publication | Measure-Object -Property Length -Sum | ForEach-Object { "Taille : {0:N0} octets" -f $_.Sum }
+
+      - name: Capture d'écran de l'app (carte et disques de démonstration)
+        run: |
+          New-Item -ItemType Directory -Force exemples | Out-Null
+          $env:CSAFE_DEMO = "$PWD\demo\SONY_FX3|$PWD\demo\SSD_Samsung_T9|$PWD\demo\LaCie_Rugged"
+          $env:CSAFE_SCREENSHOT = "$PWD\exemples\capture-C-SAFE-PC.png"
+          $p = Start-Process publication\C-SAFE.exe -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); Write-Output "::error title=CAPTURE::l'app ne s'est pas fermée" ; exit 1 }
+          if (Test-Path "exemples\capture-C-SAFE-PC.png.erreur.txt") { Get-Content "exemples\capture-C-SAFE-PC.png.erreur.txt" | ForEach-Object { Write-Output "::error title=CAPTURE::$_" }; exit 1 }
+          if (Test-Path "$env:APPDATA\C-SAFE\erreurs.txt") { Get-Content "$env:APPDATA\C-SAFE\erreurs.txt" | Select-Object -First 30 | ForEach-Object { Write-Output "::error title=APP::$_" } }
+          Get-ChildItem exemples
+
+      - name: Publier les aperçus (version « apercu-pc »)
+        if: always()
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apercu-pc
+          name: Aperçus C-SAFE pour Windows
+          body: Captures et PDF d'exemple fabriqués automatiquement sur un PC Windows de GitHub.
+          prerelease: true
+          make_latest: false
+          files: |
+            exemples/*.png
+            exemples/*.pdf
+            test.log
+          fail_on_unmatched_files: false
+
+      - name: Fabriquer l'installateur
+        if: steps.tests.outcome == 'success'
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /Q "/DAppVersion=1.${{ github.run_number }}" Windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $h = (Get-FileHash sortie\C-SAFE-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "sha=$h" | Out-File -Append $env:GITHUB_OUTPUT
+          Write-Output "::notice title=INSTALLATEUR::C-SAFE-Setup.exe $((Get-Item sortie\C-SAFE-Setup.exe).Length) octets, SHA-256 $h"
+        id: setup
+
+      - name: Publier la version PC
+        if: steps.tests.outcome == 'success'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pc-version-${{ github.run_number }}
+          name: C-SAFE pour Windows — version 1.${{ github.run_number }}
+          make_latest: false
+          body: |
+            C-SAFE pour Windows 10 et 11 (64 bits). Installation sans droits administrateur.
+
+            1. Télécharger C-SAFE-Setup.exe et l'ouvrir.
+            2. Windows affiche « Windows a protégé votre ordinateur » (l'app n'est pas signée) :
+               cliquer « Informations complémentaires », puis « Exécuter quand même ».
+            3. Suivre l'installation : C-SAFE apparaît dans le menu Démarrer (et sur le Bureau si coché).
+
+            Les mises à jour suivantes : bouton « Mise à jour » dans C-SAFE.
+
+            Empreinte SHA-256 de C-SAFE-Setup.exe : ${{ steps.setup.outputs.sha }}
+          files: sortie/C-SAFE-Setup.exe
+
+      - name: Tests en échec
+        if: steps.tests.outcome != 'success'
+        run: exit 1

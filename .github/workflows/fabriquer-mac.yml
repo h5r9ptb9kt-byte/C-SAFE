@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - "Windows/**"
+      - ".github/workflows/fabriquer-windows.yml"
   workflow_dispatch:
 
 permissions:
