@@ -813,11 +813,15 @@ enum PDFReport {
             let total = cards.reduce(Int64(0)) { $0 + $1.totalBytes }
             badge(page, ok: ok, text: ok ? "✓ \(cards.count) carte\(cards.count > 1 ? "s" : "") copiée\(cards.count > 1 ? "s" : "") et vérifiée\(cards.count > 1 ? "s" : "") sur tous les disques"
                                          : "✗ Au moins une carte n'a pas été vérifiée : ne formate rien, voir le détail")
-            let rushes = allClips.compactMap { $0.kind == "photo" ? nil : $0.duration }.reduce(0, +)
+            // Durée d'enregistrement séparée : vidéo d'un côté, son de l'autre (v66)
+            let video = allClips.filter { $0.kind == "vidéo" }, sound = allClips.filter { $0.kind == "son" }
+            let photos = allClips.filter { $0.kind == "photo" }.count
+            let vDur = video.compactMap { $0.duration }.reduce(0, +), sDur = sound.compactMap { $0.duration }.reduce(0, +)
+            let files = cards.reduce(0) { $0 + $1.files }
             tiles(page, [("Cartes", "\(cards.count)", Set(cards.map { $0.label }).sorted().joined(separator: " · ")),
-                         ("Rushes", "\(allClips.count)", countText(allClips)),
-                         ("Durée", rushes > 0 ? durationText(rushes) : "—", "vidéo + son"),
-                         ("Volume", OffloadJob.human(total), "\(cards.reduce(0) { $0 + $1.files }) fichiers")])
+                         ("Durée vidéo", vDur > 0 ? durationText(vDur) : "—", "\(video.count) clip\(video.count > 1 ? "s" : "") vidéo"),
+                         ("Durée son", sDur > 0 ? durationText(sDur) : "—", "\(sound.count) fichier\(sound.count > 1 ? "s" : "") son"),
+                         ("Volume", OffloadJob.human(total), "\(files) fichiers" + (photos > 0 ? " · \(photos) photo\(photos > 1 ? "s" : "")" : ""))])
             syncTimeline(page, cards)
             cardList(page, cards)
         } else if let c = cards.first {
