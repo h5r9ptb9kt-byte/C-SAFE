@@ -162,6 +162,141 @@ enum PDFReport {
         return Naming.list(store).filter { $0.hasPrefix(day + "_") && $0.hasSuffix(".json") }.count
     }
 
+    // MARK: - État du rapport du jour
+
+    static func storeDir(_ projectDir: URL) -> URL {
+        projectDir.appendingPathComponent(Naming.reportDir)
+            .appendingPathComponent(Naming.hiddenDir).appendingPathComponent("rapports")
+    }
+
+    static func dayReportURL(projectDir: URL, day: String) -> URL {
+        projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(day)_rapport_du_jour.pdf")
+    }
+
+    private static func mtime(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
+    /// Heure du dernier rapport du jour fabriqué (nil = pas encore fait)
+    static func dayReportDate(projectDir: URL, day: String) -> Date? {
+        mtime(dayReportURL(projectDir: projectDir, day: day))
+    }
+
+    /// Fiches de cartes ajoutées après le dernier rapport du jour (rapport à refaire)
+    static func cardsNewerThanDayReport(projectDir: URL, day: String) -> Int {
+        guard let made = dayReportDate(projectDir: projectDir, day: day) else { return 0 }
+        let store = storeDir(projectDir)
+        return Naming.list(store).filter { $0.hasPrefix(day + "_") && $0.hasSuffix(".json") }
+            .filter { (mtime(store.appendingPathComponent($0)) ?? .distantPast) > made }.count
+    }
+
+    // MARK: - Rattrapage : cartes copiées sans fiche (interrupteur PDF décoché dans les versions ≤ 1.61)
+
+    /// Noms des cartes copiées (un « …_rapport.txt » existe) qui n'ont pas de fiche pour le rapport du jour.
+    /// `day` nil = tous les jours du projet.
+    static func missingCards(projectDir: URL, day: String? = nil) -> [String] {
+        let rd = projectDir.appendingPathComponent(Naming.reportDir)
+        let store = storeDir(projectDir)
+        let have = Set(Naming.list(store).filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) })
+        return Naming.list(rd).filter { $0.hasSuffix("_rapport.txt") }
+            .map { String($0.dropLast("_rapport.txt".count)) }
+            .filter { !have.contains($0) && (day == nil || $0.hasPrefix(day! + "_")) }
+            .sorted()
+    }
+
+    /// Ce que le rapport texte d'une carte permet de retrouver (la carte n'est plus nécessaire)
+    struct TextReport {
+        var fields: [String: String] = [:]
+        var destinations: [String] = []
+        var files: [(hash: String, rel: String)] = []
+    }
+
+    static func parseTextReport(_ text: String) -> TextReport {
+        var out = TextReport()
+        enum Section { case head, dest, files }
+        var section = Section.head
+        for line in text.components(separatedBy: "\n") {
+            if line.hasPrefix("Fichiers (empreinte") { section = .files; continue }
+            if line.hasPrefix("Destinations :") { section = .dest; continue }
+            switch section {
+            case .head:
+                if let r = line.range(of: " : ") {
+                    let key = line[..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+                    out.fields[key] = String(line[r.upperBound...])
+                }
+            case .dest:
+                if line.hasPrefix("  [OK] ") { out.destinations.append("OK · " + String(line.dropFirst(7))) }
+                else if line.hasPrefix("  [ERREUR] ") { out.destinations.append("ERREUR · " + String(line.dropFirst(11))) }
+            case .files:
+                // « ␣␣<empreinte>␣␣<taille>␣␣<chemin> » (taille : « 12 o » ou « 1.5 Go »)
+                guard line.hasPrefix("  ") else { continue }
+                let l = String(line.dropFirst(2))
+                guard let a = l.range(of: "  ") else { continue }
+                let hash = String(l[..<a.lowerBound])
+                let rest = l[a.upperBound...]
+                guard let b = rest.range(of: "  ") else { continue }
+                let rel = String(rest[b.upperBound...])
+                if !rel.isEmpty { out.files.append((hash: hash, rel: rel)) }
+            }
+        }
+        return out
+    }
+
+    /// « 512.3 Mo » → octets (approximatif, pour l'affichage du débit)
+    static func parseHuman(_ s: String) -> Int64 {
+        let parts = s.trimmingCharacters(in: .whitespaces).split(separator: " ")
+        guard parts.count >= 2, let v = Double(parts[0].replacingOccurrences(of: ",", with: ".")) else { return 0 }
+        let unit = parts[1].replacingOccurrences(of: "/s", with: "")
+        let e: Double = ["o": 0, "Ko": 1, "Mo": 2, "Go": 3, "To": 4][unit] ?? 0
+        return Int64(v * Foundation.pow(1024.0, e))
+    }
+
+    /// Refait la fiche d'une carte à partir de son rapport texte et des rushes déjà copiés sur ce disque.
+    /// Ne lit que la copie (jamais la carte) ; n'écrit rien dans le dossier de la carte.
+    static func recoverCard(projectDir: URL, reportName: String, progress: ((Int, Int) -> Void)? = nil) -> CardData? {
+        let txt = projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(reportName)_rapport.txt")
+        guard let text = try? String(contentsOf: txt, encoding: .utf8) else { return nil }
+        let t = parseTextReport(text)
+        guard let display = t.fields["Dossier carte"], !display.isEmpty else { return nil }
+        let cardFolder = projectDir.appendingPathComponent(display)
+        guard Naming.isDir(cardFolder) else { return nil }
+
+        var files: [(rel: String, size: Int64)] = []
+        var hashes: [String: String] = [:]
+        for f in t.files {
+            let p = cardFolder.appendingPathComponent(f.rel).path
+            guard let size = (try? FileManager.default.attributesOfItem(atPath: p))?[.size] as? NSNumber else { continue }
+            files.append((rel: f.rel, size: size.int64Value))
+            hashes[f.rel] = f.hash
+        }
+        guard !files.isEmpty else { return nil }
+
+        let verif = t.fields["Vérification"] ?? ""
+        var hashTitle = "xxHash64"
+        if let o = verif.range(of: "(") {
+            hashTitle = String(verif[o.upperBound...].prefix { $0 != "," && $0 != ")" })
+        }
+        var seconds = 0
+        if let d = t.fields["Durée totale"] {
+            let n = d.split { !$0.isNumber }.compactMap { Int($0) }
+            if n.count >= 2 { seconds = n[0] * 60 + n[1] }
+        }
+        let origin = t.fields["Carte d'origine"] ?? ""
+        let cardName = origin.range(of: " (").map { String(origin[..<$0.lowerBound]) } ?? origin
+        let day = t.fields["Jour"] ?? ""
+        let base = CardData(
+            project: t.fields["Projet"] ?? projectDir.lastPathComponent,
+            day: day, display: display,
+            label: t.fields["Source"] ?? "", cardName: cardName,
+            date: String((t.fields["Date"] ?? "").prefix(16)),
+            files: Int(t.fields["Fichiers"] ?? "") ?? t.files.count,
+            totalBytes: files.reduce(Int64(0)) { $0 + $1.size },
+            seconds: seconds, speed: parseHuman(t.fields["Débit de copie"] ?? ""),
+            hash: hashTitle, verified: verif.hasPrefix("OK"),
+            destinations: t.destinations, clips: [])
+        return prepare(base, cardFolder: cardFolder, files: files, hashes: hashes, progress: progress)
+    }
+
     static func savedCards(projectDir: URL) -> [CardData] {
         let store = projectDir.appendingPathComponent(Naming.reportDir)
             .appendingPathComponent(Naming.hiddenDir).appendingPathComponent("rapports")

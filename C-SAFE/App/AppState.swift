@@ -84,12 +84,9 @@ final class AppState: ObservableObject {
     @Published private(set) var manualDays: [String: Int] =
         (UserDefaults.standard.dictionary(forKey: "csafe.manualDays") as? [String: Int]) ?? [:]
     @Published private(set) var dayManual = false
-    /// Empreinte de vérification (xxHash64 par défaut) et rapport PDF à chaque carte, mémorisés
+    /// Empreinte de vérification (xxHash64 par défaut), mémorisée. La fiche PDF de chaque carte se fait toujours.
     @Published var hashKind: HashKind = HashKind(rawValue: UserDefaults.standard.string(forKey: "csafe.hashKind") ?? "") ?? .xxh64 {
         didSet { UserDefaults.standard.set(hashKind.rawValue, forKey: "csafe.hashKind") }
-    }
-    @Published var makePDF: Bool = UserDefaults.standard.object(forKey: "csafe.makePDF") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(makePDF, forKey: "csafe.makePDF") }
     }
     /// Dernier rapport PDF créé, et rapport du jour en cours de fabrication
     @Published private(set) var lastReport: URL?
@@ -98,9 +95,29 @@ final class AppState: ObservableObject {
 
     /// Cartes prêtes pour le rapport du jour affiché, et durée estimée (≈ 1 s par carte, mise en page seulement)
     var dayReportCards: Int {
+        _ = reportTick
         guard let pd = projectDirOnFirstDisk else { return 0 }
         return PDFReport.savedCardCount(projectDir: pd, day: day)
     }
+    /// Change à chaque fiche ou rapport écrit, pour rafraîchir l'état affiché
+    @Published private(set) var reportTick = 0
+    /// État du rapport du jour affiché : pas fait, fait (heure), ou à refaire (cartes copiées depuis)
+    enum DayReportStatus { case notDone, done(Date), outdated(Date, Int) }
+    var dayReportStatus: DayReportStatus {
+        _ = reportTick
+        guard let pd = projectDirOnFirstDisk, let made = PDFReport.dayReportDate(projectDir: pd, day: day) else { return .notDone }
+        let newer = PDFReport.cardsNewerThanDayReport(projectDir: pd, day: day)
+        return newer > 0 ? .outdated(made, newer) : .done(made)
+    }
+    /// Cartes copiées sans fiche (interrupteur PDF décoché avant la 1.62), tous jours confondus, sur les disques branchés
+    var missingReportCards: [String] {
+        _ = reportTick
+        var all = Set<String>()
+        for pd in connectedProjectDirs { all.formUnion(PDFReport.missingCards(projectDir: pd)) }
+        return all.sorted()
+    }
+    @Published private(set) var recoveringReports = false
+    @Published private(set) var recoverProgress = ""
     var dayReportEstimate: Int { max(2, dayReportCards) }
     /// Jours plus récents à renuméroter si la date choisie est plus ancienne (copie en retard)
     @Published private(set) var dayShift: [DayShift] = []
@@ -703,6 +720,7 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.makingDayReport = false
+                    self.reportTick += 1
                     let took = Int(Date().timeIntervalSince(self.dayReportStart ?? Date()).rounded())
                     self.dayReportStart = nil
                     if let url {
@@ -712,6 +730,56 @@ final class AppState: ObservableObject {
                         self.openReport(url)
                     } else {
                         self.errorMessage = "Aucune carte copiée avec rapport pour \(d) sur ce disque."
+                    }
+                }
+            }
+        }
+    }
+
+    /// Dossiers du projet sur tous les disques de destination branchés
+    var connectedProjectDirs: [URL] {
+        destinationURLs().filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { $0.appendingPathComponent(Naming.sanitize(project)) }
+    }
+
+    /// Refait les fiches manquantes à partir des rushes déjà copiés (la carte n'est pas nécessaire).
+    /// La fiche est écrite sur chaque disque où elle manque ; le dossier de la carte n'est jamais modifié.
+    func recoverMissingReports() {
+        guard !recoveringReports else { return }
+        let pds = connectedProjectDirs
+        let names = missingReportCards
+        guard !names.isEmpty else { return }
+        recoveringReports = true
+        recoverProgress = "0/\(names.count)"
+        addLog("Rattrapage de \(names.count) fiche(s) manquante(s)…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var made = 0
+            var failed: [String] = []
+            for (i, name) in names.enumerated() {
+                let lacking = pds.filter { PDFReport.missingCards(projectDir: $0).contains(name) }
+                var data: PDFReport.CardData?
+                for pd in lacking where data == nil {
+                    data = PDFReport.recoverCard(projectDir: pd, reportName: name) { done, count in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated { self.recoverProgress = "\(i + 1)/\(names.count) · clip \(done)/\(count)" }
+                        }
+                    }
+                }
+                if let data {
+                    for pd in lacking { PDFReport.write(data, projectDir: pd, reportName: name) }
+                    made += 1
+                } else {
+                    failed.append(name)
+                }
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.recoveringReports = false
+                    self.recoverProgress = ""
+                    self.reportTick += 1
+                    self.addLog("Rattrapage : \(made) fiche(s) refaite(s).")
+                    if !failed.isEmpty {
+                        self.errorMessage = "Fiche impossible à refaire (dossier de la carte introuvable sur les disques branchés) : " + failed.joined(separator: ", ")
                     }
                 }
             }
@@ -1000,7 +1068,7 @@ final class AppState: ObservableObject {
             }
         }
         newJob.hashKind = hashKind
-        newJob.makePDF = makePDF
+        newJob.makePDF = true
         jobs[path] = (newJob, item)
         DispatchQueue.global(qos: .userInitiated).async { newJob.run() }
     }
@@ -1104,6 +1172,7 @@ final class AppState: ObservableObject {
         } else if r.ok {
             addLog("✓ " + r.message)
             if let u = r.reportPDF { lastReport = u; addLog("Rapport PDF : \(u.lastPathComponent)") }
+            reportTick += 1
             if running.isEmpty { status = "Terminé — \(r.name)" }
             progressText = "\(r.name) : copié et vérifié sur tous les disques"
             lastSuccess = true

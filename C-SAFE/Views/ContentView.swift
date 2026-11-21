@@ -883,13 +883,32 @@ struct ReportsPanel: View {
 
     var body: some View {
         Panel(title: "Rapports", icon: "doc.richtext") {
-            Toggle(isOn: $state.makePDF) {
-                Text("PDF à chaque carte : vignettes, durée, résolution, codec, empreintes")
-                    .font(.system(size: Theme.fs(11)))
-                    .foregroundStyle(Theme.cream)
+            Text("Chaque carte copiée a sa fiche PDF : vignettes, durée, résolution, codec, empreintes.")
+                .font(.system(size: Theme.fs(11)))
+                .foregroundStyle(Theme.cream)
+                .fixedSize(horizontal: false, vertical: true)
+            let missing = state.missingReportCards
+            if !missing.isEmpty || state.recoveringReports {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(state.recoveringReports
+                         ? "Rattrapage des fiches… \(state.recoverProgress)"
+                         : "\(missing.count) carte(s) copiée(s) sans fiche : elles ne sont pas dans le rapport du jour.")
+                        .font(.system(size: Theme.fs(11), weight: .semibold))
+                        .foregroundStyle(Theme.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { state.recoverMissingReports() } label: {
+                        Label("Rattraper les fiches manquantes", systemImage: "arrow.clockwise.circle")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(state.busy || state.recoveringReports || state.makingDayReport)
+                    Text("Refait les fiches à partir des rushes déjà copiés sur le disque : la carte n'est pas nécessaire, rien n'est modifié dans les dossiers des cartes.")
+                        .font(.system(size: Theme.fs(10)))
+                        .foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 8).stroke(Theme.orange.opacity(0.6)))
             }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
             if let u = state.lastReport {
                 HStack(spacing: 6) {
                     Image(systemName: "doc.fill").foregroundStyle(Theme.orange)
@@ -923,10 +942,11 @@ struct ReportsPanel: View {
                 }
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(state.busy || state.makingDayReport || cards == 0)
+            .disabled(state.busy || state.makingDayReport || state.recoveringReports || cards == 0)
+            if cards > 0 { DayReportStatusLine(status: state.dayReportStatus) }
             Text(cards == 0
-                 ? "À faire le soir, quand toutes les cartes du jour sont copiées. Aucune carte avec rapport pour ce jour sur le premier disque."
-                 : "À faire le soir : \(cards) carte(s) prête(s) · environ \(state.dayReportEstimate) s (les vignettes sont déjà faites). Le PDF de chaque carte, lui, se fait tout seul après sa copie.")
+                 ? "À faire le soir, quand toutes les cartes du jour sont copiées. Aucune carte avec fiche pour ce jour sur le premier disque."
+                 : "À faire le soir : \(cards) carte(s) prête(s) · environ \(state.dayReportEstimate) s (les vignettes sont déjà faites). Il ne se fait pas tout seul : clique le bouton quand toutes les cartes sont copiées.")
                 .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -935,6 +955,40 @@ struct ReportsPanel: View {
                 .foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// « pas encore fait » en orange, « fait à 19 h 42 ✓ » en vert, « à refaire » si des cartes ont été copiées depuis
+struct DayReportStatusLine: View {
+    let status: AppState.DayReportStatus
+
+    static func when(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "H' h 'mm"
+        let time = f.string(from: d)
+        if Calendar.current.isDateInToday(d) { return "à \(time)" }
+        f.dateFormat = "d/MM"
+        return "le \(f.string(from: d)) à \(time)"
+    }
+
+    var body: some View {
+        let (text, icon, color): (String, String, Color) = {
+            switch status {
+            case .notDone:
+                return ("Rapport du jour : pas encore fait", "exclamationmark.circle.fill", Theme.orange)
+            case .done(let d):
+                return ("Rapport du jour fait \(Self.when(d)) ✓", "checkmark.circle.fill", Theme.green)
+            case .outdated(let d, let n):
+                return ("Rapport du jour fait \(Self.when(d)), mais \(n) carte(s) copiée(s) depuis : à refaire", "arrow.triangle.2.circlepath.circle.fill", Theme.orange)
+            }
+        }()
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.system(size: Theme.fs(11), weight: .semibold))
+        .foregroundStyle(color)
     }
 }
 

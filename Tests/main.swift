@@ -251,6 +251,43 @@ let daySize = ((try? fm.attributesOfItem(atPath: dayPDF?.path ?? ""))?[.size] as
 check(PDFReport.savedCardCount(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18") >= 7,
       "compteur : cartes prêtes pour le rapport du jour")
 check(dayPDF != nil && daySize > 2000, "rapport du jour J1 en un seul PDF (\(daySize / 1024) Ko, \(PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).count) cartes)")
+// 10b. Rattrapage : carte copiée sans fiche (interrupteur PDF décoché, versions ≤ 1.61)
+let pjT = d1.appendingPathComponent("Tournage-ete")
+check(PDFReport.dayReportDate(projectDir: pjT, day: "J1_2026-10-18") != nil, "état : rapport du jour marqué « fait »")
+check(PDFReport.cardsNewerThanDayReport(projectDir: pjT, day: "J1_2026-10-18") == 0, "état : rapport du jour à jour")
+check(PDFReport.dayReportDate(projectDir: pjT, day: "J9_2026-12-01") == nil, "état : jour sans rapport marqué « pas encore fait »")
+check(PDFReport.missingCards(projectDir: pjT).isEmpty, "aucune fiche manquante quand le PDF est fait à chaque carte")
+Thread.sleep(forTimeInterval: 1.2)
+var rNoPDF: OffloadResult?
+let noPDFJob = OffloadJob(source: makeCard("CARTE_SANS_PDF", mb: 5), destinations: [d1, d2], project: "Tournage été", label: "CamG_FX3",
+                          day: "J1_2026-10-18", force: false) { ev in if case .finished(let r) = ev { rNoPDF = r } }
+noPDFJob.makePDF = false
+noPDFJob.run()
+let countBefore = PDFReport.savedCardCount(projectDir: pjT, day: "J1_2026-10-18")
+let missing = PDFReport.missingCards(projectDir: pjT, day: "J1_2026-10-18")
+check(rNoPDF?.ok == true && missing.count == 1 && missing[0].contains("CamG_FX3_Carte01"), "carte sans fiche repérée (\(missing))")
+let gFolder = pjT.appendingPathComponent(rNoPDF?.display ?? "?")
+let gBefore = (try? fm.subpathsOfDirectory(atPath: gFolder.path))?.sorted() ?? []
+let recovered = missing.first.flatMap { PDFReport.recoverCard(projectDir: pjT, reportName: $0) }
+check(recovered?.display == rNoPDF?.display && recovered?.label == "CamG_FX3" && recovered?.verified == true
+      && recovered?.hash == "xxHash64" && (recovered?.totalBytes ?? 0) > 4_000_000 && recovered?.day == "J1_2026-10-18",
+      "fiche refaite depuis le rapport texte et la copie (\(recovered?.display ?? "?"), \(recovered?.hash ?? "?"), \(recovered?.totalBytes ?? 0) o)")
+if let recovered, let name = missing.first {
+    for pd in [pjT, d2.appendingPathComponent("Tournage-ete")] { PDFReport.write(recovered, projectDir: pd, reportName: name) }
+}
+let gAfter = (try? fm.subpathsOfDirectory(atPath: gFolder.path))?.sorted() ?? []
+check(!gBefore.isEmpty && gBefore == gAfter, "rattrapage : rien ajouté dans le dossier de la carte")
+check(PDFReport.missingCards(projectDir: pjT).isEmpty && PDFReport.missingCards(projectDir: d2.appendingPathComponent("Tournage-ete")).isEmpty,
+      "plus de fiche manquante après rattrapage, sur les 2 disques")
+check(PDFReport.savedCardCount(projectDir: pjT, day: "J1_2026-10-18") == countBefore + 1, "la carte rattrapée entre dans le rapport du jour")
+check(PDFReport.cardsNewerThanDayReport(projectDir: pjT, day: "J1_2026-10-18") == 1, "état : rapport du jour « à refaire » (1 carte depuis)")
+_ = PDFReport.dayReport(projectDir: pjT, day: "J1_2026-10-18")
+check(PDFReport.cardsNewerThanDayReport(projectDir: pjT, day: "J1_2026-10-18") == 0, "état : rapport du jour refait, de nouveau à jour")
+let parsed = PDFReport.parseTextReport("Projet          : A : B\nDestinations :\n  [OK] /Volumes/X\nFichiers (empreinte MD5) :\n  abc  1.5 Go  CLIP/C 0001.MP4\n    12 o  sans empreinte.txt\n")
+check(parsed.fields["Projet"] == "A : B" && parsed.destinations == ["OK · /Volumes/X"]
+      && parsed.files.map { $0.rel } == ["CLIP/C 0001.MP4", "sans empreinte.txt"] && parsed.files[0].hash == "abc",
+      "lecture du rapport texte (espaces dans les noms, empreinte absente)")
+check(PDFReport.parseHuman("512.0 Mo") == 512 * 1024 * 1024, "débit relu depuis le rapport texte")
 // Historique des anciennes versions (à la vue) : relu puis rangé dans .C-SAFE
 let oldProj = base.appendingPathComponent("ANCIEN/Projet")
 try! fm.createDirectory(at: oldProj.appendingPathComponent(Naming.reportDir), withIntermediateDirectories: true)
