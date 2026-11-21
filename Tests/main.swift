@@ -73,20 +73,23 @@ check(fm.fileExists(atPath: copied.path), "arborescence caméra conservée sur l
 let cardFolder = d2.appendingPathComponent("Tournage-ete/J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01")
 let inCard = (try? fm.contentsOfDirectory(atPath: cardFolder.path)) ?? []
 check(inCard == ["PRIVATE"], "dossier de carte identique à la carte, aucun fichier ajouté (\(inCard))")
-let reports = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []
+let reports = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/Rapports_des_cartes").path)) ?? []
 check(reports.contains { $0.hasSuffix(".mhl") } && reports.contains { $0.hasSuffix("_rapport.pdf") } && reports.contains { $0.hasSuffix("_rapport.txt") },
-      "Rapports_de_copie : PDF + .mhl + .txt (\(reports.sorted()))")
+      "Rapports_des_cartes : PDF + .mhl + .txt (\(reports.sorted()))")
+let rootItems = ((try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []).filter { !$0.hasPrefix(".") }
+check(rootItems == ["Rapports_des_cartes"], "Rapports_de_copie ne contient que des dossiers, aucun fichier mélangé (\(rootItems))")
 check(!reports.contains { $0.hasSuffix(".json") || $0.hasSuffix(".xxh64") }, "fichiers techniques (.json, .xxh64) rangés à part")
 let hiddenItems = (try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/.C-SAFE").path)) ?? []
 check(hiddenItems.contains(Naming.historyFile) && !hiddenItems.contains { $0.hasSuffix(".xxh64") },
       "historique dans le dossier masqué .C-SAFE, plus de .xxh64 en doublon du .mhl (\(hiddenItems.sorted()))")
 if let pdfName = reports.first(where: { $0.hasSuffix("_rapport.pdf") }),
-   let head = try? FileHandle(forReadingFrom: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/\(pdfName)")).read(upToCount: 5) {
+   let head = try? FileHandle(forReadingFrom: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/Rapports_des_cartes/\(pdfName)")).read(upToCount: 5) {
     check(String(data: head, encoding: .ascii) == "%PDF-", "le rapport PDF est un vrai PDF")
 }
 check(r1.reportPDF != nil, "le résultat donne le lien du PDF")
 let mhlName = reports.first { $0.hasSuffix(".mhl") } ?? ""
-let mhlText = (try? String(contentsOf: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/\(mhlName)"), encoding: .utf8)) ?? ""
+let mhlText = (try? String(contentsOf: d2.appendingPathComponent("Tournage-ete/Rapports_de_copie/Rapports_des_cartes/\(mhlName)"), encoding: .utf8)) ?? ""
+check(mhlText.contains("<file>../../J1_2026-10-18/CamA_FX3/CamA_FX3_Carte01/"), "MHL : chemins relatifs corrects depuis Rapports_des_cartes")
 check(mhlText.contains("<xxhash64be>"), "MHL en xxHash64 par défaut")
 let projectItems = ((try? fm.contentsOfDirectory(atPath: d2.appendingPathComponent("Tournage-ete").path)) ?? []).sorted()
 check(projectItems.last == "Rapports_de_copie", "Rapports_de_copie rangé après les jours (\(projectItems))")
@@ -242,14 +245,15 @@ let md5Job = OffloadJob(source: makeCard("CARTE_MD5", mb: 9), destinations: [d1,
 md5Job.hashKind = .md5
 md5Job.run()
 check(rMD5?.ok == true, "copie vérifiée en MD5 (\(rMD5?.message.prefix(60) ?? "?"))")
-let rep2 = (try? fm.contentsOfDirectory(atPath: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie").path)) ?? []
+let rep2 = (try? fm.contentsOfDirectory(atPath: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie/Rapports_des_cartes").path)) ?? []
 let mhlMD5 = rep2.first { $0.contains("CamF_FX3_Carte01") && $0.hasSuffix(".mhl") }.flatMap {
-    try? String(contentsOf: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie/\($0)"), encoding: .utf8) } ?? ""
+    try? String(contentsOf: d1.appendingPathComponent("Tournage-ete/Rapports_de_copie/Rapports_des_cartes/\($0)"), encoding: .utf8) } ?? ""
 check(mhlMD5.contains("<md5>"), "MHL en MD5 quand le MD5 est choisi")
 let dayPDF = PDFReport.dayReport(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18")
 let daySize = ((try? fm.attributesOfItem(atPath: dayPDF?.path ?? ""))?[.size] as? NSNumber)?.intValue ?? 0
 check(PDFReport.savedCardCount(projectDir: d1.appendingPathComponent("Tournage-ete"), day: "J1_2026-10-18") >= 7,
       "compteur : cartes prêtes pour le rapport du jour")
+check(dayPDF?.deletingLastPathComponent().lastPathComponent == "Rapports_du_jour", "rapport du jour rangé dans Rapports_du_jour (\(dayPDF?.path ?? "?"))")
 check(dayPDF != nil && daySize > 2000, "rapport du jour J1 en un seul PDF (\(daySize / 1024) Ko, \(PDFReport.savedCards(projectDir: d1.appendingPathComponent("Tournage-ete")).count) cartes)")
 // 10b. Rattrapage : carte copiée sans fiche (interrupteur PDF décoché, versions ≤ 1.61)
 let pjT = d1.appendingPathComponent("Tournage-ete")

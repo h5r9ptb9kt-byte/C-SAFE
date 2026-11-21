@@ -141,17 +141,19 @@ enum PDFReport {
         if let json = try? JSONEncoder().encode(data) {
             try? json.write(to: store.appendingPathComponent("\(reportName).json"), options: .atomic)
         }
-        let pdf = rd.appendingPathComponent("\(reportName)_rapport.pdf")
+        let cardDir = Naming.cardReports(projectDir)
+        try? FileManager.default.createDirectory(at: cardDir, withIntermediateDirectories: true)
+        let pdf = cardDir.appendingPathComponent("\(reportName)_rapport.pdf")
         let title = "Rapport de copie — \(data.display.split(separator: "/").last.map(String.init) ?? data.label)"
         return render(title: title, subtitle: "\(data.project) · \(data.day)", cards: [data], dayMode: false, to: pdf) ? pdf : nil
     }
 
     /// Rassemble toutes les cartes d'un jour dans un seul PDF : « J1_2026-11-04_rapport_du_jour.pdf ».
     static func dayReport(projectDir: URL, day: String) -> URL? {
-        let rd = projectDir.appendingPathComponent(Naming.reportDir)
         let cards = savedCards(projectDir: projectDir).filter { $0.day == day }.sorted { $0.display < $1.display }
         guard !cards.isEmpty else { return nil }
-        let pdf = rd.appendingPathComponent("\(day)_rapport_du_jour.pdf")
+        let pdf = dayReportURL(projectDir: projectDir, day: day)
+        try? FileManager.default.createDirectory(at: Naming.dayReports(projectDir), withIntermediateDirectories: true)
         return render(title: "Rapport du jour — \(day)", subtitle: cards[0].project, cards: cards, dayMode: true, to: pdf) ? pdf : nil
     }
 
@@ -170,7 +172,7 @@ enum PDFReport {
     }
 
     static func dayReportURL(projectDir: URL, day: String) -> URL {
-        projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(day)_rapport_du_jour.pdf")
+        Naming.dayReports(projectDir).appendingPathComponent("\(day)_rapport_du_jour.pdf")
     }
 
     private static func mtime(_ url: URL) -> Date? {
@@ -180,6 +182,8 @@ enum PDFReport {
     /// Heure du dernier rapport du jour fabriqué (nil = pas encore fait)
     static func dayReportDate(projectDir: URL, day: String) -> Date? {
         mtime(dayReportURL(projectDir: projectDir, day: day))
+            // Avant la 1.67, le rapport du jour était rangé directement dans Rapports_de_copie
+            ?? mtime(projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(day)_rapport_du_jour.pdf"))
     }
 
     /// Fiches de cartes ajoutées après le dernier rapport du jour (rapport à refaire)
@@ -195,11 +199,10 @@ enum PDFReport {
     /// Noms des cartes copiées (un « …_rapport.txt » existe) qui n'ont pas de fiche pour le rapport du jour.
     /// `day` nil = tous les jours du projet.
     static func missingCards(projectDir: URL, day: String? = nil) -> [String] {
-        let rd = projectDir.appendingPathComponent(Naming.reportDir)
         let store = storeDir(projectDir)
         let have = Set(Naming.list(store).filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) })
-        return Naming.list(rd).filter { $0.hasSuffix("_rapport.txt") }
-            .map { String($0.dropLast("_rapport.txt".count)) }
+        let txts = Naming.list(Naming.cardReports(projectDir)) + Naming.list(projectDir.appendingPathComponent(Naming.reportDir))
+        return Set(txts.filter { $0.hasSuffix("_rapport.txt") }.map { String($0.dropLast("_rapport.txt".count)) })
             .filter { !have.contains($0) && (day == nil || $0.hasPrefix(day! + "_")) }
             .sorted()
     }
@@ -254,8 +257,10 @@ enum PDFReport {
     /// Refait la fiche d'une carte à partir de son rapport texte et des rushes déjà copiés sur ce disque.
     /// Ne lit que la copie (jamais la carte) ; n'écrit rien dans le dossier de la carte.
     static func recoverCard(projectDir: URL, reportName: String, progress: ((Int, Int) -> Void)? = nil) -> CardData? {
-        let txt = projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(reportName)_rapport.txt")
-        guard let text = try? String(contentsOf: txt, encoding: .utf8) else { return nil }
+        let name = "\(reportName)_rapport.txt"
+        guard let text = (try? String(contentsOf: Naming.cardReports(projectDir).appendingPathComponent(name), encoding: .utf8))
+                ?? (try? String(contentsOf: projectDir.appendingPathComponent(Naming.reportDir).appendingPathComponent(name), encoding: .utf8))
+        else { return nil }
         let t = parseTextReport(text)
         guard let display = t.fields["Dossier carte"], !display.isEmpty else { return nil }
         let cardFolder = projectDir.appendingPathComponent(display)

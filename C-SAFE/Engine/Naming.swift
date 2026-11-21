@@ -16,6 +16,15 @@ enum Naming {
                                  "SON", "HF1", "HF2", "HF3", "HF4"]
     /// Nom sans « _ » initial : il se range toujours après J1, J2, J3… dans le Finder
     static let reportDir = "Rapports_de_copie"
+    /// Deux dossiers dans Rapports_de_copie (v67) : un pour les cartes (PDF, .mhl, .txt), un pour les rapports du jour
+    static let cardReportsDir = "Rapports_des_cartes"
+    static let dayReportsDir = "Rapports_du_jour"
+    static func cardReports(_ projectDir: URL) -> URL {
+        projectDir.appendingPathComponent(reportDir).appendingPathComponent(cardReportsDir)
+    }
+    static func dayReports(_ projectDir: URL) -> URL {
+        projectDir.appendingPathComponent(reportDir).appendingPathComponent(dayReportsDir)
+    }
     static let historyFile = "historique_cartes.json"
     /// Sous-dossier masqué de Rapports_de_copie : fichiers techniques (historique, listes d'empreintes, vignettes)
     static let hiddenDir = ".C-SAFE"

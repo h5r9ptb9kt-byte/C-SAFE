@@ -950,7 +950,7 @@ struct ReportsPanel: View {
                 .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Dans Rapports_de_copie : le PDF à lire, le .mhl (standard DIT, relu par Silverstack, ShotPut, Hedge) et le .txt. Les fichiers techniques sont rangés dans le sous-dossier masqué .C-SAFE.")
+            Text("Dans Rapports_de_copie, deux dossiers : « Rapports_des_cartes » (pour chaque carte : le PDF à lire, le .mhl standard DIT relu par Silverstack, ShotPut, Hedge, et le .txt) et « Rapports_du_jour » (un PDF par jour). Les fichiers techniques sont dans le sous-dossier masqué .C-SAFE.")
                 .font(.system(size: Theme.fs(10)))
                 .foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)

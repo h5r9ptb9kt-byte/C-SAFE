@@ -330,7 +330,7 @@ final class OffloadJob {
         let proj = Naming.sanitize(project)
         let projectDirs = destinations.map { $0.appendingPathComponent(proj) }
         for pd in projectDirs {
-            try fm.createDirectory(at: pd.appendingPathComponent(Naming.reportDir), withIntermediateDirectories: true)
+            try fm.createDirectory(at: Naming.cardReports(pd), withIntermediateDirectories: true)
         }
 
         // Doublon ? La carte est reconnue par son contenu (liste et poids de chaque fichier),
@@ -601,7 +601,7 @@ final class OffloadJob {
             do {
                 let hidden = rd.appendingPathComponent(Naming.hiddenDir)
                 try fm.createDirectory(at: hidden, withIntermediateDirectories: true)
-                try reportText.write(to: rd.appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
+                try reportText.write(to: Naming.cardReports(pd).appendingPathComponent("\(reportName)_rapport.txt"), atomically: true, encoding: .utf8)
                 if allOK {
                     let entry = ["dossier": plan.display, "projet": proj, "date": Self.stamp(end, "yyyy-MM-dd HH:mm:ss"),
                                  "label": cardName, "taille": Self.human(total), "fichiers": "\(files.count)"]
@@ -656,7 +656,7 @@ final class OffloadJob {
 
     // MARK: MHL 1.1 (standard DIT : Silverstack, ShotPut, Hedge, YoYotta, Resolve…)
 
-    /// Écrit le .mhl dans Rapports_de_copie (chemins relatifs « ../J1_…/CamA_…/… ») :
+    /// Écrit le .mhl dans Rapports_de_copie/Rapports_des_cartes (chemins relatifs « ../../J1_…/CamA_…/… ») :
     /// les dossiers de cartes restent identiques à la carte, sans aucun fichier ajouté.
     private func writeMHL(projectDirs: [URL], targets: [URL], display: String, reportName: String,
                           files: [CardFile], hashes: [String: String], start: Date, end: Date) {
@@ -681,7 +681,7 @@ final class OffloadJob {
                 let mod = (try? fm.attributesOfItem(atPath: p.path))?[.modificationDate] as? Date ?? end
                 lines += [
                     "  <hash>",
-                    "    <file>\(Self.xml("../\(display)/\(f.rel)"))</file>",
+                    "    <file>\(Self.xml("../../\(display)/\(f.rel)"))</file>",
                     "    <size>\(f.size)</size>",
                     "    <lastmodificationdate>\(iso.string(from: mod))</lastmodificationdate>",
                     "    <\(hashKind.mhlTag)>\(hashes[f.rel] ?? "")</\(hashKind.mhlTag)>",
@@ -690,7 +690,7 @@ final class OffloadJob {
                 ]
             }
             lines.append("</hashlist>")
-            let url = pd.appendingPathComponent(Naming.reportDir).appendingPathComponent("\(reportName)_\(stamp).mhl")
+            let url = Naming.cardReports(pd).appendingPathComponent("\(reportName)_\(stamp).mhl")
             do {
                 try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
             } catch {
