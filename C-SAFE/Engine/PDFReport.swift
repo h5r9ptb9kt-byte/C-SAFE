@@ -724,14 +724,17 @@ enum PDFReport {
         return parts.isEmpty ? "aucun rush" : parts.joined(separator: " · ")
     }
 
-    /// « S-Log3 / S-Gamut3.Cine » ; si la carte mélange plusieurs réglages : « ⚠ mélangé : S-Log3 (12) · Rec709 (3) »
+    /// « S-Log3 / S-Gamut3.Cine » ; si la carte mélange plusieurs réglages : « MÉLANGÉ ! S-Log3 ×12 · Rec709 ×3 »
     private static func imageText(_ clips: [Clip]) -> String? {
         let looks = clips.filter { $0.kind == "vidéo" }.compactMap { $0.look }
         guard !looks.isEmpty else { return nil }
         var counts: [String: Int] = [:]
         for l in looks { counts[l, default: 0] += 1 }
         if counts.count == 1 { return looks[0] }
-        return "⚠ mélangé : " + counts.sorted { $0.value > $1.value }.map { "\($0.key) (\($0.value))" }.joined(separator: " · ")
+        // Réglages différents sur la même carte : on ne garde que la courbe, plus courte
+        var short: [String: Int] = [:]
+        for c in clips where c.kind == "vidéo" { if let g = c.gamma ?? c.gamut { short[g, default: 0] += 1 } }
+        return "MÉLANGÉ ! " + short.sorted { $0.value > $1.value }.map { "\($0.key) ×\($0.value)" }.joined(separator: " · ")
     }
 
     private static func formatText(_ clips: [Clip]) -> String? {
