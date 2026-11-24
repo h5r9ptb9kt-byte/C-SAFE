@@ -35,6 +35,14 @@ enum PDFReport {
         var camera: String? = nil // « Sony ILME-FX2 »
         var lens: String? = nil
         var note: String? = nil   // son : « Sc 12 · Prise 3 »
+        var gamma: String? = nil  // courbe d'image (XML Sony) : « S-Log3 », « Rec709 »…
+        var gamut: String? = nil  // espace couleur : « S-Gamut3.Cine », « Rec709 »…
+        /// « S-Log3 / S-Gamut3.Cine » ou « Rec709 »
+        var look: String? {
+            guard let g = gamma else { return gamut }
+            guard let c = gamut, c != g else { return g }
+            return "\(g) / \(c)"
+        }
 
         var shortName: String { (name as NSString).lastPathComponent }
         /// Début en secondes depuis minuit (pour la frise)
@@ -354,7 +362,7 @@ enum PDFReport {
     }
 
     /// XML Sony à côté du clip (C0001.MP4 → C0001M01.XML) : timecode, caméra, objectif
-    static func sonyXML(for url: URL) -> (frames: Int, rate: Int, drop: Bool, camera: String?, lens: String?, slowmo: String?)? {
+    static func sonyXML(for url: URL) -> (frames: Int, rate: Int, drop: Bool, camera: String?, lens: String?, slowmo: String?, gamma: String?, gamut: String?)? {
         let dir = url.deletingLastPathComponent(), stem = url.deletingPathExtension().lastPathComponent
         let fm = FileManager.default
         let candidates = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
@@ -385,6 +393,18 @@ enum PDFReport {
                                : "Accéléré (\(String(format: "%g", cap)) i/s)"
         }
 
+        // Courbe et espace couleur enregistrés par la caméra (S-Log3 / S-Gamut3.Cine, Rec709, HLG…)
+        func item(_ name: String) -> String? {
+            guard let r = xml.range(of: "<Item\\b[^>]*name=\"\(name)\"[^>]*>", options: .regularExpression) else { return nil }
+            let el = String(xml[r])
+            guard let a = el.range(of: "value=\"[^\"]*\"", options: .regularExpression) else { return nil }
+            let v = String(el[a]).components(separatedBy: "\"")[1]
+            return v.isEmpty ? nil : v
+        }
+        let gamma = item("CaptureGammaEquation").map(prettyImage)
+        let gamut = item("CaptureColorPrimaries").map(prettyImage)
+        let hasImage = gamma != nil || gamut != nil
+
         // Toutes les entrées LtcChange (début, …, fin)
         var changes: [(count: Int, value: String)] = []
         var rest = Substring(xml)
@@ -398,7 +418,7 @@ enum PDFReport {
         let rate = Int(attr("LtcChangeTable", "tcFps", in: xml) ?? "")
             ?? Int((attr("VideoFrame", "formatFps", in: xml) ?? "").filter(\.isNumber).prefix(2)) ?? 25
         guard let start = changes.first(where: { $0.count == 0 }) ?? changes.first else {
-            return camera.isEmpty && slowmo == nil ? nil : (0, 0, false, camera.isEmpty ? nil : camera, lens, slowmo)
+            return camera.isEmpty && slowmo == nil && !hasImage ? nil : (0, 0, false, camera.isEmpty ? nil : camera, lens, slowmo, gamma, gamut)
         }
         var options = TC.sony(start.value)
         // Si les deux lectures sont possibles, on garde celle qui colle avec l'entrée de fin
@@ -412,9 +432,29 @@ enum PDFReport {
                 return b - a == end.count - start.count
             }) { options = [options[i]] }
         }
-        guard let t = options.first else { return camera.isEmpty && slowmo == nil ? nil : (0, 0, false, camera.isEmpty ? nil : camera, lens, slowmo) }
+        guard let t = options.first else { return camera.isEmpty && slowmo == nil && !hasImage ? nil : (0, 0, false, camera.isEmpty ? nil : camera, lens, slowmo, gamma, gamut) }
         let frames = TC.frames(h: t.h, m: t.m, s: t.s, f: t.f, rate: rate, drop: t.drop) - start.count
-        return (frames, rate, t.drop, camera.isEmpty ? nil : camera, lens, slowmo)
+        return (frames, rate, t.drop, camera.isEmpty ? nil : camera, lens, slowmo, gamma, gamut)
+    }
+
+    /// Valeurs du XML Sony → noms lisibles (« s-log3-cine » → « S-Log3 », « s-gamut3-cine » → « S-Gamut3.Cine »)
+    static func prettyImage(_ raw: String) -> String {
+        let k = raw.lowercased().replacingOccurrences(of: "_", with: "-").trimmingCharacters(in: .whitespaces)
+        let known: [String: String] = [
+            "rec709": "Rec709", "itu709": "Rec709", "bt709": "Rec709", "rec-709": "Rec709",
+            "rec2020": "Rec2020", "bt2020": "Rec2020", "rec-2020": "Rec2020",
+            "s-log3": "S-Log3", "s-log3-cine": "S-Log3", "slog3": "S-Log3",
+            "s-log2": "S-Log2", "slog2": "S-Log2", "s-log": "S-Log",
+            "s-gamut3-cine": "S-Gamut3.Cine", "s-gamut3cine": "S-Gamut3.Cine", "sgamut3cine": "S-Gamut3.Cine",
+            "s-gamut3": "S-Gamut3", "sgamut3": "S-Gamut3", "s-gamut": "S-Gamut",
+            "s-cinetone": "S-Cinetone", "scinetone": "S-Cinetone",
+            "rec2100-hlg": "HLG", "hlg": "HLG", "arib-std-b67": "HLG", "rec2100-pq": "PQ (HDR)",
+        ]
+        if let n = known[k] { return n }
+        if k.contains("hlg") { return "HLG" }
+        if k.hasPrefix("s-log3") { return "S-Log3" }
+        if k.hasPrefix("s-gamut3-cine") { return "S-Gamut3.Cine" }
+        return raw
     }
 
     /// Piste timecode (tmcd) lue directement dans le fichier MOV/MP4 (sans AVFoundation)
@@ -587,6 +627,8 @@ enum PDFReport {
         clip.camera = sony?.camera
         clip.lens = sony?.lens
         clip.note = sony?.slowmo
+        clip.gamma = sony?.gamma
+        clip.gamut = sony?.gamut
         if clip.camera == nil {
             let items = asset.commonMetadata + asset.metadata
             func value(_ id: AVMetadataIdentifier) -> String? {
@@ -680,6 +722,16 @@ enum PDFReport {
         if p > 0 { parts.append("\(p) photo\(p > 1 ? "s" : "")") }
         if a > 0 { parts.append("\(a) son\(a > 1 ? "s" : "")") }
         return parts.isEmpty ? "aucun rush" : parts.joined(separator: " · ")
+    }
+
+    /// « S-Log3 / S-Gamut3.Cine » ; si la carte mélange plusieurs réglages : « ⚠ mélangé : S-Log3 (12) · Rec709 (3) »
+    private static func imageText(_ clips: [Clip]) -> String? {
+        let looks = clips.filter { $0.kind == "vidéo" }.compactMap { $0.look }
+        guard !looks.isEmpty else { return nil }
+        var counts: [String: Int] = [:]
+        for l in looks { counts[l, default: 0] += 1 }
+        if counts.count == 1 { return looks[0] }
+        return "⚠ mélangé : " + counts.sorted { $0.value > $1.value }.map { "\($0.key) (\($0.value))" }.joined(separator: " · ")
     }
 
     private static func formatText(_ clips: [Clip]) -> String? {
@@ -920,6 +972,7 @@ enum PDFReport {
         if let camera { info.append(("Caméra", camera)) }
         if let lens = mostCommon(c.clips.map { $0.lens }) { info.append(("Objectif", lens)) }
         if let f = formatText(c.clips) { info.append(("Format", f)) }
+        if let img = imageText(c.clips) { info.append(("Image", img)) }
         if let tc = tcRange(c.clips) { info.append(("Timecode", tc)) }
         info += [("Copie terminée", c.date), ("Vérification", "\(c.hash) — \(c.verified ? "OK" : "ÉCHEC")")]
         if dayMode { info.append(("Copie", "\(durationText(Double(c.seconds))) · \(OffloadJob.human(c.speed))/s")) }
@@ -967,6 +1020,7 @@ enum PDFReport {
                 var details: [String] = []
                 if let d = clip.duration { details.append(durationText(d)) }
                 if let n = clip.note { details.append(n) }
+                if let g = clip.gamma ?? clip.gamut { details.append(g) }
                 if let r = clip.resolution { details.append(r) }
                 if let f = clip.fps { details.append(f) }
                 if let k = clip.codec { details.append(k) }

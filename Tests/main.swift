@@ -315,6 +315,14 @@ let sx = PDFReport.sonyXML(for: xdir.appendingPathComponent("C0001.MP4"))
 let sxTC = sx.map { PDFReport.TC.string($0.frames, rate: $0.rate, drop: $0.drop) } ?? "?"
 check(sxTC == "10:16:29:13" && sx?.camera == "Sony ILME-FX2" && sx?.lens == "FE 70-200mm F2.8 GM OSS II" && sx?.slowmo == "Ralenti ×4 (100p)",
       "XML Sony FX2 : TC \(sxTC), \(sx?.camera ?? "?"), \(sx?.lens ?? "?"), \(sx?.slowmo ?? "?")")
+check(sx?.gamma == "Rec709" && sx?.gamut == "Rec709", "XML Sony FX2 : image \(sx?.gamma ?? "?") / \(sx?.gamut ?? "?")")
+let slogXML = try! String(contentsOf: fixtures.appendingPathComponent("C0001M01.XML"), encoding: .utf8)
+    .replacingOccurrences(of: "name=\"CaptureGammaEquation\" value=\"rec709\"", with: "name=\"CaptureGammaEquation\" value=\"s-log3-cine\"")
+    .replacingOccurrences(of: "name=\"CaptureColorPrimaries\" value=\"rec709\"", with: "name=\"CaptureColorPrimaries\" value=\"s-gamut3-cine\"")
+try! slogXML.write(to: xdir.appendingPathComponent("C0002M01.XML"), atomically: true, encoding: .utf8)
+touch(xdir.appendingPathComponent("C0002.MP4"))
+let sx2 = PDFReport.sonyXML(for: xdir.appendingPathComponent("C0002.MP4"))
+check(sx2?.gamma == "S-Log3" && sx2?.gamut == "S-Gamut3.Cine", "XML Sony en S-Log3 : \(sx2?.gamma ?? "?") / \(sx2?.gamut ?? "?")")
 check(!PDFReport.isClip("PRIVATE/M4ROOT/THMBNL/C0001T01.JPG", videoStems: ["C0001"]) &&
       !PDFReport.isClip("DCIM/C0001T01.JPG", videoStems: ["C0001"]) &&
       PDFReport.isClip("PRIVATE/M4ROOT/CLIP/C0001.MP4", videoStems: ["C0001"]) &&
@@ -333,7 +341,7 @@ if fm.fileExists(atPath: media.appendingPathComponent("a1.mp4").path) {
     for (i, v) in ["13291610", "00002010", "00102410"].enumerated() {   // 10:16:29:13, 10:20:00:00, 10:24:10:00
         let n = String(format: "C%04d", i + 1)
         try! fm.copyItem(at: media.appendingPathComponent("a\(i + 1).mp4"), to: sClip.appendingPathComponent("\(n).MP4"))
-        try! xml.replacingOccurrences(of: "13291610", with: v).replacingOccurrences(of: "100.00p", with: i == 0 ? "100.00p" : "25.00p")
+        try! (i == 2 ? slogXML : xml).replacingOccurrences(of: "13291610", with: v).replacingOccurrences(of: "100.00p", with: i == 0 ? "100.00p" : "25.00p")
             .write(to: sClip.appendingPathComponent("\(n)M01.XML"), atomically: true, encoding: .utf8)
         try! fm.copyItem(at: media.appendingPathComponent("thumb.jpg"), to: sThumb.appendingPathComponent("\(n)T01.JPG"))
     }
